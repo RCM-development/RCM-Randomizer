@@ -80,16 +80,43 @@ namespace RCM_Randomizer
 
         // ---- Public API ----------------------------------------------------------------------
 
-        public static List<EntityRoll> GenerateAll(int seed, float intensity, int maxStatsPerRoll)
+        // luck (0 = neutral): harder difficulty rolls more favorably, Borderlands-style.
+        // It shifts each roll toward the beneficial direction AND discounts the compensation,
+        // so on high ascension/heat the rolled cards are genuinely better value than baseline.
+        public static List<EntityRoll> GenerateAll(int seed, float intensity, int maxStatsPerRoll, float luck = 0f)
         {
             var rolls = new List<EntityRoll>();
             var universe = RollableEntityIds();
             for (int i = 0; i < universe.Count; i++)
             {
-                var roll = GenerateForEntity(universe[i], seed, intensity, maxStatsPerRoll, UniqueIdBase - i);
+                var roll = GenerateForEntity(universe[i], seed, intensity, maxStatsPerRoll, UniqueIdBase - i, luck);
                 if (roll != null) rolls.Add(roll);
             }
             return rolls;
+        }
+
+        // Stable turret-donor assignment for UnitsMixNMatch: a seeded permutation of the compat
+        // list with fixed points removed, so every entity keeps the same donor all run and no
+        // donor is assigned twice.
+        public static Dictionary<string, string> GenerateDonorMap(int seed, IEnumerable<string> supportedEntities)
+        {
+            var bases = supportedEntities.Distinct().ToList();
+            bases.Sort(StringComparer.Ordinal);
+            var map = new Dictionary<string, string>();
+            if (bases.Count < 2) return map;
+
+            var donors = new List<string>(bases);
+            Shuffle(donors, new Random(seed ^ 0x7EA5EED));
+            for (int i = 0; i < bases.Count; i++)
+            {
+                if (donors[i] == bases[i])
+                {
+                    int j = (i + 1) % bases.Count;
+                    (donors[i], donors[j]) = (donors[j], donors[i]);
+                }
+            }
+            for (int i = 0; i < bases.Count; i++) map[bases[i]] = donors[i];
+            return map;
         }
 
         // Everything that can end up in the player's deck: blueprint buildings plus the units
@@ -102,7 +129,7 @@ namespace RCM_Randomizer
             return list;
         }
 
-        static EntityRoll GenerateForEntity(string entityId, int seed, float intensity, int maxStatsPerRoll, int uniqueId)
+        static EntityRoll GenerateForEntity(string entityId, int seed, float intensity, int maxStatsPerRoll, int uniqueId, float luck)
         {
             var rand = new Random(seed ^ Fnv1a(entityId));
             float range = RarityRange(entityId) * intensity;
@@ -115,20 +142,23 @@ namespace RCM_Randomizer
             int statCount = 1 + rand.Next(Math.Max(1, maxStatsPerRoll));
             statCount = Math.Min(statCount, applicable.Count);
 
+            float favorableBias = Math.Min(0.6f, 0.25f * luck);
+
             var roll = new EntityRoll { EntityId = entityId, UniqueChangeId = uniqueId };
             for (int i = 0; i < statCount; i++)
             {
                 var spec = applicable[i];
-                float mult = SampleMultiplier(rand, range * spec.RangeScale);
+                float bias = favorableBias * Math.Sign(spec.Weight);
+                float mult = SampleMultiplier(rand, range * spec.RangeScale, bias);
                 if (Math.Abs((float)Math.Log(mult)) < MinRollMagnitude)
-                    mult = SampleMultiplier(rand, range * spec.RangeScale);
+                    mult = SampleMultiplier(rand, range * spec.RangeScale, bias);
                 roll.Stats.Add(new RolledStat { Spec = spec, Multiplier = mult });
             }
 
             CapDegenerateCombos(roll);
 
             roll.PowerDelta = roll.Stats.Sum(s => s.Spec.Weight * (float)Math.Log(s.Multiplier));
-            AddCompensation(roll, entityId);
+            AddCompensation(roll, entityId, Math.Min(0.5f, 0.15f * luck));
             roll.Label = BuildLabel(roll);
             return roll;
         }
@@ -163,11 +193,14 @@ namespace RCM_Randomizer
         }
 
         // Log-uniform in [1/(1+range), 1+range]: a +30% roll and its -23% mirror are equally likely
-        // and carry the same |power| in log space.
-        static float SampleMultiplier(Random rand, float range)
+        // and carry the same |power| in log space. A positive bias shifts the draw toward the
+        // stat's favorable direction (the caller flips the sign for lower-is-better stats).
+        static float SampleMultiplier(Random rand, float range, float bias = 0f)
         {
             double logMax = Math.Log(1f + range);
-            double u = rand.NextDouble() * 2.0 - 1.0;
+            double u = rand.NextDouble() * 2.0 - 1.0 + bias;
+            if (u > 1.0) u = 1.0;
+            if (u < -1.0) u = -1.0;
             return (float)Math.Exp(u * logMax);
         }
 
@@ -186,7 +219,9 @@ namespace RCM_Randomizer
 
         // Pay the power delta back through cost and build time (weighted 1.0 / 0.30, with build time
         // moving at half the cost's log-rate, mirroring how the two correlate in the balancing table).
-        static void AddCompensation(EntityRoll roll, string entityId)
+        // luckDiscount (0..0.5) reduces what a BUFF has to pay back; nerfs are always fully refunded,
+        // so higher difficulty makes cards better value on average, never worse.
+        static void AddCompensation(EntityRoll roll, string entityId, float luckDiscount = 0f)
         {
             bool hasCost = SafeGreaterZero(entityId, EntityBalancingStore.ChangeableValue.Cost);
             bool hasProd = SafeGreaterZero(entityId, EntityBalancingStore.ChangeableValue.ProductionDuration);
@@ -195,7 +230,8 @@ namespace RCM_Randomizer
             float denominator = (hasCost ? CostSpec.Weight : 0f) + (hasProd ? ProdSpec.Weight * 0.5f : 0f);
             if (denominator <= 0f) return;
 
-            float lnCost = roll.PowerDelta / denominator;
+            float payable = roll.PowerDelta > 0f ? roll.PowerDelta * (1f - luckDiscount) : roll.PowerDelta;
+            float lnCost = payable / denominator;
             if (hasCost)
             {
                 float mult = Clamp((float)Math.Exp(lnCost), 0.6f, 1.8f);

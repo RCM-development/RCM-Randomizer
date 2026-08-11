@@ -21,7 +21,9 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 
 - `RollEngine.cs` is the deterministic core: a catalog of ~20 rollable stats (`EntityBalancingStore.ChangeableValue`), each with a power weight, a roll-range scale and applicability rules (no range rolls on unarmed units, no duplicate stats per card, no roll on cards the game marks inactive). Per entity it draws 1..N stats, samples log-uniform multipliers within the rarity band, caps degenerate combos (long range + big AoE), sums the power delta and pays it back through cost and build time.
 - `Randomizer.cs` applies the result through `EntityBalancingStore.SetInGameCardChanges`, the same layer the game's ascension/heat modifiers use. Card UI highlighting and tooltips come from the game itself; each roll's tooltip source line is its description, e.g. `Overclocked | DMG +21% | COST +14% BUILDTIME +7%`, injected as a localization entry.
-- Modes: `Off`, `PerSave` (seed file in the profile folder, reroll button in the F5 panel), `PerRun` (the run's own Run ID). Config in `BepInEx\config\RCM.plugins.randomizer.cfg`: mode, intensity, max stats per roll.
+- Modes: `Off`, `PerSave` (seed file in the profile folder, reroll button in the F5 panel), `PerRun` (the run's own Run ID). Config in `BepInEx\config\RCM.plugins.randomizer.cfg`: mode, intensity, max stats per roll, luck, turret shuffle.
+- **Luck** ("harder difficulty, better loot"): a luck score from difficulty (Engaged > Relaxed > Meditative), ascension level and heat biases rolls toward buffs and discounts the compensation buffs have to pay, up to half at high ascension. Nerf rolls always refund fully, so climbing the ladder never makes cards worse.
+- **Turret shuffle** (needs [RCM-UnitsMixNMatch](https://github.com/RCM-development/RCM-UnitsMixNMatch) with the `DonorSelector` hook): instead of mix&match's per-spawn random turret, the randomizer assigns a seeded permutation over the compat list, so each unit type keeps its donor turret for the whole run and no donor appears twice.
 
 ## Status
 

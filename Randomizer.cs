@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
 using BepInEx;
 using BepInEx.Configuration;
+using HarmonyLib;
 using TestMod;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -18,7 +20,8 @@ namespace RCM_Randomizer
     // per save: a sidecar seed file in the profile folder), so nothing is written into
     // the savegame and removing the plugin restores the stock game.
     [BepInDependency(RCMManager.IDENTIFIER, BepInDependency.DependencyFlags.HardDependency)]
-    [BepInPlugin(IDENTIFIER, "Randomizer", "0.2.0")]
+    [BepInDependency("RCM.plugins.mixnmatch", BepInDependency.DependencyFlags.SoftDependency)]
+    [BepInPlugin(IDENTIFIER, "Randomizer", "0.3.0")]
     public class Randomizer : BaseUnityPlugin
     {
         const string IDENTIFIER = "RCM.plugins.randomizer";
@@ -31,10 +34,15 @@ namespace RCM_Randomizer
         ConfigEntry<Mode> _mode;
         ConfigEntry<float> _intensity;
         ConfigEntry<int> _maxStatsPerRoll;
+        ConfigEntry<bool> _luckEnabled;
+        ConfigEntry<float> _luckScale;
+        ConfigEntry<bool> _turretShuffle;
 
         readonly List<int> _appliedChangeIds = new List<int>();
         int? _appliedSeed;
         string _appliedConfigSignature;
+        string _turretStatus = "off";
+        Dictionary<string, string> _donorMap;
 
         void Awake()
         {
@@ -44,6 +52,12 @@ namespace RCM_Randomizer
                 new ConfigDescription("Scales roll ranges (rarity base: Common 15%, Rare 30%, UltraRare 50%).", new AcceptableValueRange<float>(0.1f, 3f)));
             _maxStatsPerRoll = Config.Bind("General", "MaxStatsPerRoll", 3,
                 new ConfigDescription("Upper bound of rolled stats per card (compensation not counted).", new AcceptableValueRange<int>(1, 4)));
+            _luckEnabled = Config.Bind("Luck", "Enabled", true,
+                "Harder difficulty rolls better cards: buffs get likelier and pay back less of their power through cost/build time. Engaged > Relaxed > Meditative, plus ascension and heat.");
+            _luckScale = Config.Bind("Luck", "Scale", 1.0f,
+                new ConfigDescription("Multiplier on the luck computed from difficulty/ascension/heat.", new AcceptableValueRange<float>(0f, 3f)));
+            _turretShuffle = Config.Bind("TurretShuffle", "Enabled", true,
+                "Seeded turret assignment for RCM_UnitsMixNMatch (if installed): every unit keeps the same donor turret for the whole run instead of rerolling per spawn.");
 
             RCMManager.ConnectMod("Randomizer").ContinueWith(t =>
             {
@@ -69,13 +83,15 @@ namespace RCM_Randomizer
                 }
 
                 int seed = CurrentSeed();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}";
+                float luck = CurrentLuck();
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect) return;
 
                 RemoveRolls();
-                ApplyRolls(seed);
+                ApplyRolls(seed, luck);
+                UpdateTurretShuffle(seed);
                 _appliedSeed = seed;
                 _appliedConfigSignature = signature;
                 RefreshUi();
@@ -97,10 +113,10 @@ namespace RCM_Randomizer
             return true;
         }
 
-        void ApplyRolls(int seed)
+        void ApplyRolls(int seed, float luck)
         {
             EntityBalancingStore.Init();
-            var rolls = RollEngine.GenerateAll(seed, _intensity.Value, _maxStatsPerRoll.Value);
+            var rolls = RollEngine.GenerateAll(seed, _intensity.Value, _maxStatsPerRoll.Value, luck);
             foreach (var roll in rolls)
             {
                 var changes = new List<CardChangeScriptableObject>();
@@ -113,7 +129,7 @@ namespace RCM_Randomizer
                 _appliedChangeIds.Add(roll.UniqueChangeId);
             }
             RefreshSpawnedEntities();
-            RCMManager.Log($"Randomizer: {rolls.Count} cards rolled (seed {seed}, {_mode.Value})");
+            RCMManager.Log($"Randomizer: {rolls.Count} cards rolled (seed {seed}, {_mode.Value}, luck {luck:F2})");
         }
 
         void RemoveRolls()
@@ -123,6 +139,61 @@ namespace RCM_Randomizer
             _appliedSeed = null;
             _appliedConfigSignature = null;
             RefreshSpawnedEntities();
+        }
+
+        // ---- Luck ----------------------------------------------------------------------------
+
+        // "Harder difficulty, better loot": Engaged is the game's standard mode, Relaxed and
+        // Meditative are its easier settings; the real ladder is ascension 0-11 plus heat.
+        float CurrentLuck()
+        {
+            if (!_luckEnabled.Value) return 0f;
+            try
+            {
+                var meta = MetaGame.Instance;
+                if (meta == null) return 0f;
+                float difficultyBase;
+                switch (meta.ChosenDifficulty)
+                {
+                    case MetaGame.Difficulty.Engaged: difficultyBase = 1.0f; break;
+                    case MetaGame.Difficulty.Relaxed: difficultyBase = 0.4f; break;
+                    default: difficultyBase = 0f; break;
+                }
+                return (difficultyBase + 0.25f * meta.CurrentAscensionLevel + 0.35f * meta.CurrentHeat) * _luckScale.Value;
+            }
+            catch { return 0f; }
+        }
+
+        // ---- Turret shuffle (soft integration with RCM_UnitsMixNMatch) ------------------------
+
+        void UpdateTurretShuffle(int seed)
+        {
+            var mixerType = AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
+            if (mixerType == null) { _turretStatus = "mix&match not installed"; return; }
+
+            var selectorField = mixerType.GetField("DonorSelector", BindingFlags.Public | BindingFlags.Static);
+            if (selectorField == null) { _turretStatus = "mix&match too old (no DonorSelector hook)"; return; }
+
+            if (!_turretShuffle.Value || _mode.Value == Mode.Off)
+            {
+                selectorField.SetValue(null, null);
+                _turretStatus = "off";
+                return;
+            }
+
+            var supported = mixerType.GetProperty("SupportedEntities", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IReadOnlyCollection<string>;
+            if (supported == null || supported.Count < 2)
+            {
+                selectorField.SetValue(null, null);
+                _turretStatus = "compat list empty";
+                return;
+            }
+
+            _donorMap = RollEngine.GenerateDonorMap(seed, supported);
+            var map = _donorMap;
+            selectorField.SetValue(null, new Func<string, string>(id => map.TryGetValue(id, out var donor) ? donor : null));
+            _turretStatus = $"{_donorMap.Count} stable pairs";
         }
 
         // ---- Seeds ---------------------------------------------------------------------------
@@ -221,7 +292,7 @@ namespace RCM_Randomizer
         string StatusText()
         {
             string seedText = _appliedSeed.HasValue ? _appliedSeed.Value.ToString() : "-";
-            return $"Mode: {_mode.Value} | seed {seedText} | {_appliedChangeIds.Count} cards rolled";
+            return $"Mode: {_mode.Value} | seed {seedText} | {_appliedChangeIds.Count} cards | luck {CurrentLuck():F2} | turrets: {_turretStatus}";
         }
     }
 }
