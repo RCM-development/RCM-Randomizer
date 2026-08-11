@@ -17,9 +17,15 @@ Every roll pays for itself. Rolls are multipliers around a unit's baseline stats
 
 See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analysis: how the game stores stats, the card-change stacking system the plugin rides on, seeding, save format, and the fitted cost model.
 
+## How it works
+
+- `RollEngine.cs` is the deterministic core: a catalog of ~20 rollable stats (`EntityBalancingStore.ChangeableValue`), each with a power weight, a roll-range scale and applicability rules (no range rolls on unarmed units, no duplicate stats per card, no roll on cards the game marks inactive). Per entity it draws 1..N stats, samples log-uniform multipliers within the rarity band, caps degenerate combos (long range + big AoE), sums the power delta and pays it back through cost and build time.
+- `Randomizer.cs` applies the result through `EntityBalancingStore.SetInGameCardChanges`, the same layer the game's ascension/heat modifiers use. Card UI highlighting and tooltips come from the game itself; each roll's tooltip source line is its description, e.g. `Overclocked | DMG +21% | COST +14% BUILDTIME +7%`, injected as a localization entry.
+- Modes: `Off`, `PerSave` (seed file in the profile folder, reroll button in the F5 panel), `PerRun` (the run's own Run ID). Config in `BepInEx\config\RCM.plugins.randomizer.cfg`: mode, intensity, max stats per roll.
+
 ## Status
 
-Planning / early development. Roadmap is in the analysis doc (§5).
+Framework implemented (M1), in-game testing ongoing. Roadmap is in the analysis doc (§5).
 
 ## Requirements
 
