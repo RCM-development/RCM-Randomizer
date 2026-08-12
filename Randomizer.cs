@@ -161,6 +161,8 @@ namespace RCM_Randomizer
                         changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillManaCost, spec.ManaCost, roll.EntityId));
                         if (EntityBalancingStore.MaxMana(roll.EntityId, returnOriginalValueFromBalancingFile: true) <= 0)
                             changes.Add(AddChange(EntityBalancingStore.ChangeableValue.MaxMana, 60f, roll.EntityId));
+                        if (spec.SkillRange > 0)
+                            changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillRange, spec.SkillRange, roll.EntityId));
                     }
                 }
 

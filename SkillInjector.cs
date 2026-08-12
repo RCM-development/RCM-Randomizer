@@ -21,6 +21,9 @@ namespace RCM_Randomizer
             public string Description;
             public float ManaCost;
             public float Power; // priced into the roll budget like any other buff
+            public TargetOrigin Target = TargetOrigin.Self;
+            public int SkillRange; // cells, for targeted skills (0 for self skills)
+            public bool TargetEnemiesOnly;
             public Func<List<IEntityAction>> BuildActions;
         }
 
@@ -71,6 +74,39 @@ namespace RCM_Randomizer
                         takenFrom = EventPayload.EntityChoiceIncludingOperatingOnes.OperatingEntities,
                         healAmount = EventPayload.CalculationParameter.MaxHealth,
                         multiplier = 0.35f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
+                Id = "blink", ShortName = "Blink", ManaCost = 35f, Power = 0.18f,
+                Description = "Teleport to the target location.",
+                Target = TargetOrigin.ChosenLocation, SkillRange = 9,
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new Teleport
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        destination = Teleport.Destination.PayloadPosition,
+                        positionCorrectionAlgorithm = Teleport.PositionCorrectionAlgorithm.NearestFreeCellCenter,
+                    },
+                }
+            },
+            new SkillSpec
+            {
+                Id = "stasis", ShortName = "Stasis", ManaCost = 45f, Power = 0.18f,
+                Description = "Stun the target enemy for 3 seconds.",
+                Target = TargetOrigin.ChosenEntity, SkillRange = 7, TargetEnemiesOnly = true,
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new SetStatusEffect
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Other,
+                        option = SetStatusEffect.Option.Set,
+                        statusEffect = StatusEffect.Stun,
+                        durationType = SetStatusEffect.DurationType.Seconds,
+                        durationSource = EntityActionDuration.MultipleEntitySource.One,
+                        durationMultiplier = 3f,
                     },
                 }
             },
@@ -128,9 +164,15 @@ namespace RCM_Randomizer
 
             entity.hasActiveSkill = true;
             entity.activeSkillOrProduction = EntityController.ActiveSkillOrProduction.ActiveSkill;
-            entity.activeSkillType = TargetOrigin.Self;
+            entity.activeSkillType = spec.Target;
             if (entity.conditionsToActivateSelfSkill == null)
                 entity.conditionsToActivateSelfSkill = new List<EventCondition>();
+            if (spec.Target == TargetOrigin.ChosenEntity)
+                entity.entitySkillFilter = new EntitySkillFilter
+                {
+                    user = spec.TargetEnemiesOnly ? User.Ai : User.PlayerOrAi,
+                    type = ExistingControllers.Type.OnlyUnitsAndBuildings,
+                };
 
             var skillEvent = new EntityEvent { @event = EntityController.Event.OnActivateSkill };
             skillEvent.actions.AddRange(spec.BuildActions());
