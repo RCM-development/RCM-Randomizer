@@ -96,7 +96,14 @@ namespace RCM_Randomizer
                 string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
-                if (alreadyCorrect) return;
+                if (alreadyCorrect)
+                {
+                    // the game reloads its localization dictionaries during startup/language
+                    // switches, wiping injected entries: re-apply them, it's idempotent
+                    ReapplyLocaInjections();
+                    if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
+                    return;
+                }
 
                 RemoveRolls();
                 ApplyRolls(seed, luck);
@@ -223,7 +230,8 @@ namespace RCM_Randomizer
             {
                 if (_mode.Value == Mode.Off || !_turretShuffle.Value) return;
                 if (_donorMap == null || !_donorMap.ContainsKey(entity.EntityId)) return;
-                MixedUnitPresentation.TryCapturePortrait(entity);
+                if (!MixedUnitPresentation.NeedsPortrait(entity.EntityId)) return;
+                StartCoroutine(MixedUnitPresentation.CapturePortrait(entity));
             }
             catch { }
         }
@@ -331,10 +339,24 @@ namespace RCM_Randomizer
 
         // Inject the roll description into the game's localization dictionaries so the stat
         // tooltip shows it as the change's source (epic400's "give the user some context").
+        // Every entry goes into a registry too, so scene loads can restore what the game's
+        // own localization reloads wipe out.
+        static readonly Dictionary<string, string> InjectedLoca = new Dictionary<string, string>();
+
         static void SetLocaText(string key, string text)
         {
+            InjectedLoca[key] = text;
             if (Loca.GlobalDictionary.Count < 1) Loca.Init();
             foreach (var language in Loca.GlobalDictionary.Values) language[key] = text;
+        }
+
+        static void ReapplyLocaInjections()
+        {
+            if (InjectedLoca.Count == 0) return;
+            if (Loca.GlobalDictionary.Count < 1) Loca.Init();
+            foreach (var language in Loca.GlobalDictionary.Values)
+                foreach (var entry in InjectedLoca)
+                    language[entry.Key] = entry.Value;
         }
 
         // FrameBudgetPreSpawner.RequestUpdateOriginalChangeableValues reads the wrong field off
