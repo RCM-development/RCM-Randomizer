@@ -49,6 +49,8 @@ namespace RCM_Randomizer
             public string Id;
             public string ShortName;
             public float Power;
+            public bool HighEnd;      // only offered on Rare/UltraRare cards
+            public float WeaponNerf;  // caster archetype: own-weapon damage multiplier, credited to the budget
         }
 
         // Custom skills available as rare rolls; the plugin fills this from SkillInjector.Catalog.
@@ -247,10 +249,19 @@ namespace RCM_Randomizer
                 if (HasOwnSkill != null && HasOwnSkill(entityId)) chance *= ReplaceExistingSkillChance;
                 if (rand.NextDouble() < Math.Min(0.45f, chance))
                 {
-                    var option = SkillOptions[rand.Next(SkillOptions.Count)];
-                    roll.SkillId = option.Id;
-                    roll.SkillName = option.ShortName;
-                    roll.PowerDelta += option.Power;
+                    // high-end skills (orbital strike etc.) only appear on Rare+ cards
+                    var rarity = EntityBalancingStore.Rarity(EntityBalancingStore.FactoryEntityId(entityId) ?? entityId);
+                    var pool = SkillOptions.Where(o => !o.HighEnd || rarity != Rarity.Common).ToList();
+                    if (pool.Count > 0)
+                    {
+                        var option = pool[rand.Next(pool.Count)];
+                        roll.SkillId = option.Id;
+                        roll.SkillName = option.ShortName;
+                        roll.PowerDelta += option.Power;
+                        // caster archetype: the weapon nerf is a real cost, credit it
+                        if (option.WeaponNerf > 0f && option.WeaponNerf < 1f)
+                            roll.PowerDelta += 0.35f * (float)Math.Log(option.WeaponNerf);
+                    }
                 }
             }
 

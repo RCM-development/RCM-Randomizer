@@ -184,8 +184,10 @@ namespace RCM_Randomizer
             }
         }
 
-        // Builds the booth: an inactive root (so the copy's components never Awake), a stripped
-        // copy of the unit, and a camera framing it. Everything hangs off the returned root.
+        // Builds the booth: bare mesh copies of the unit's renderers and a camera framing them.
+        // Never clones the unit itself: Instantiate on a live EntityController (a 6700-line
+        // component with big serialized graphs) plus immediately destroying every component
+        // took over TWO SECONDS, which was the first-spawn-of-a-type stutter.
         static GameObject BuildBooth(GameObject unit, out RenderTexture rt)
         {
             rt = null;
@@ -193,15 +195,11 @@ namespace RCM_Randomizer
             try
             {
                 booth = new GameObject("RCM_PortraitBooth");
-                booth.SetActive(false);
                 booth.transform.position = BoothPosition;
 
-                GameObject model = UnityEngine.Object.Instantiate(unit, booth.transform);
-                StripToVisuals(model);
-                model.transform.localPosition = Vector3.zero;
-                model.transform.localRotation = Quaternion.identity;
-
-                booth.SetActive(true);
+                GameObject model = new GameObject("model");
+                model.transform.SetParent(booth.transform, false);
+                ReplicateVisuals(unit, model.transform);
 
                 var renderers = model.GetComponentsInChildren<Renderer>()
                     .Where(r => (r is MeshRenderer || r is SkinnedMeshRenderer) && r.enabled)
@@ -257,16 +255,31 @@ namespace RCM_Randomizer
             return any ? total : renderers[0].bounds;
         }
 
-        // Leave only meshes behind: no scripts that would register the copy with the game, no
-        // particles, trails, audio or health bars in the shot.
-        static void StripToVisuals(GameObject model)
+        // Rebuild just the unit's visible meshes as fresh bare GameObjects (shared mesh + shared
+        // materials, pose preserved relative to the unit root). Nothing of the unit itself is
+        // cloned, so nothing heavy or stateful comes along.
+        static void ReplicateVisuals(GameObject unit, Transform target)
         {
-            foreach (var component in model.GetComponentsInChildren<Component>(true))
+            Transform source = unit.transform;
+            foreach (var renderer in unit.GetComponentsInChildren<MeshRenderer>())
             {
-                if (component == null) continue;
-                if (component is Transform || component is MeshFilter
-                    || component is MeshRenderer || component is SkinnedMeshRenderer) continue;
-                try { UnityEngine.Object.DestroyImmediate(component); } catch { }
+                if (!renderer.enabled) continue;
+                var filter = renderer.GetComponent<MeshFilter>();
+                if (filter == null || filter.sharedMesh == null) continue;
+
+                var part = new GameObject("part");
+                part.transform.SetParent(target, false);
+                part.transform.localPosition = source.InverseTransformPoint(renderer.transform.position);
+                part.transform.localRotation = Quaternion.Inverse(source.rotation) * renderer.transform.rotation;
+                var unitScale = source.lossyScale;
+                var partScale = renderer.transform.lossyScale;
+                part.transform.localScale = new Vector3(
+                    partScale.x / Mathf.Max(0.0001f, unitScale.x),
+                    partScale.y / Mathf.Max(0.0001f, unitScale.y),
+                    partScale.z / Mathf.Max(0.0001f, unitScale.z));
+
+                part.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
+                part.AddComponent<MeshRenderer>().sharedMaterials = renderer.sharedMaterials;
             }
         }
 

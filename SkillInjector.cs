@@ -24,6 +24,8 @@ namespace RCM_Randomizer
             public TargetOrigin Target = TargetOrigin.Self;
             public int SkillRange; // cells, for targeted skills (0 for self skills)
             public bool TargetEnemiesOnly;
+            public bool HighEnd;         // only rolls on Rare/UltraRare cards
+            public float WeaponNerf = 1f; // caster archetype: own weapon damage multiplier (budget-credited)
             public Func<List<IEntityAction>> BuildActions;
         }
 
@@ -190,6 +192,26 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
+                Id = "orbital", ShortName = "Orbital Strike", ManaCost = 60f, Power = 0.40f,
+                Description = "Call in an artillery barrage at the target location. Powering the uplink cripples this unit's own weapons.",
+                Target = TargetOrigin.ChosenLocation, SkillRange = 6, // has to get close: that IS the drawback
+                HighEnd = true, WeaponNerf = 0.35f,
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new SpawnObject
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        spawn = SpawnObject.Spawn.EntityId,
+                        entityId = "LightArtillery", // the game's own barrage emitter (drops use it too)
+                        initEntityController = true,
+                        startingPosition = SpawnObject.StartingPosition.PayloadPosition,
+                        positioningAlgorithm = SpawnObject.PositioningAlgorithm.PositionAsGiven,
+                        tagHandling = SpawnObject.OverwriteTagOption.OverwriteWithOwnTag,
+                    },
+                }
+            },
+            new SkillSpec
+            {
                 Id = "stasis", ShortName = "Stasis", ManaCost = 45f, Power = 0.18f,
                 Description = "Stun the target enemy for 3 seconds.",
                 Target = TargetOrigin.ChosenEntity, SkillRange = 7, TargetEnemiesOnly = true,
@@ -209,7 +231,11 @@ namespace RCM_Randomizer
         };
 
         public static IReadOnlyList<RollEngine.SkillOption> Options =>
-            Catalog.Select(s => new RollEngine.SkillOption { Id = s.Id, ShortName = s.ShortName, Power = s.Power }).ToList();
+            Catalog.Select(s => new RollEngine.SkillOption
+            {
+                Id = s.Id, ShortName = s.ShortName, Power = s.Power,
+                HighEnd = s.HighEnd, WeaponNerf = s.WeaponNerf,
+            }).ToList();
 
         public static SkillSpec Get(string skillId) => Catalog.FirstOrDefault(s => s.Id == skillId);
 

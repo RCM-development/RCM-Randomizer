@@ -47,6 +47,9 @@ namespace RCM_Randomizer
         ConfigEntry<float> _skillReplaceChance;
         ConfigEntry<bool> _rollUpgrades;
         ConfigEntry<string> _rollExcludeIds;
+        ConfigEntry<bool> _enemyRolls;
+        ConfigEntry<int> _capturedTechCount;
+        ConfigEntry<bool> _rollHacks;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
@@ -93,6 +96,12 @@ namespace RCM_Randomizer
                 "Upgrade cards roll too: effect magnitudes scale within the rarity band, and the numbers in the card text are rewritten to match.");
             _rollExcludeIds = Config.Bind("General", "RollExcludeIds", "DropFireMissiles",
                 "Comma-separated entityIds exempt from stat rolls. DropFireMissiles is excluded by default while we verify a reported impact-offset issue.");
+            _rollHacks = Config.Bind("Hacks", "RollEffects", true,
+                "Hacks (relics) roll too: their stat-channel effect magnitudes scale within the rarity band and the numbers in the card text follow. Behaviour effects (proc chances etc.) stay stock.");
+            _enemyRolls = Config.Bind("Enemies", "RollStats", true,
+                "Enemy-only units get their own seeded variance that escalates every level of the run: bigger bands, stronger upward bias. Every run's opposition drifts differently.");
+            _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
+                new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
             RollEngine.ReplaceExistingSkillChance = _skillReplaceChance.Value;
             SkillInjector.AllowReplaceExisting = _skillReplaceChance.Value > 0f;
             RollEngine.ExcludedIds = new HashSet<string>(
@@ -131,7 +140,8 @@ namespace RCM_Randomizer
 
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}";
+                int escalation = CurrentEscalation();
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -141,6 +151,7 @@ namespace RCM_Randomizer
                     ReapplyLocaInjections();
                     SkillInjector.ReapplyDescriptions();
                     UpgradeRolls.ReapplyDescriptions();
+                    RelicRolls.ReapplyDescriptions();
                     ApplyDropDescSuffixes();
                     if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
                     return;
@@ -148,10 +159,16 @@ namespace RCM_Randomizer
 
                 RemoveRolls();
                 if (_promoteDropRarities.Value) PromoteDropRarities();
+                if (_capturedTechCount.Value > 0) ApplyCapturedTech(seed);
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
                 if (_rollUpgrades.Value) UpgradeRolls.Apply(seed, _intensity.Value, luck);
+                if (_rollHacks.Value) RelicRolls.Apply(seed, _intensity.Value, luck);
+                if (_enemyRolls.Value)
+                    _appliedChangeIds.AddRange(EnemyRolls.Apply(seed, escalation, _intensity.Value,
+                        (id, changes, source) => { RegisterChangesQuietly(id, changes, source); return true; },
+                        SetLocaText));
                 // ONE cache refresh for the whole batch: registering each change individually
                 // rebuilt every cached card ~270 times in a single frame, a hard stutter at
                 // run start in PerRun mode (PerSave hid it in the menu)
@@ -213,6 +230,12 @@ namespace RCM_Randomizer
                         int originalSkillRange = EntityBalancingStore.SkillRange(roll.EntityId, returnOriginalValueFromBalancingFile: true);
                         if (spec.SkillRange > 0 && originalSkillRange >= 0 && spec.SkillRange != originalSkillRange)
                             changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillRange, spec.SkillRange - originalSkillRange, roll.EntityId));
+                        // caster archetype: a very powerful skill cripples the unit's own weapons
+                        if (spec.WeaponNerf > 0f && spec.WeaponNerf < 1f)
+                        {
+                            changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Damage1, spec.WeaponNerf, roll.EntityId));
+                            changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Damage2, spec.WeaponNerf, roll.EntityId));
+                        }
                     }
                 }
 
@@ -248,7 +271,9 @@ namespace RCM_Randomizer
             SkillInjector.ClearAssignments();
             RestoreDropRarities();
             RestoreDropDescSuffixes();
+            RestoreCapturedTech();
             UpgradeRolls.Restore();
+            RelicRolls.Restore();
             if (hadChanges)
             {
                 EntityBalancingStore.InvalidateCache();
@@ -335,6 +360,80 @@ namespace RCM_Randomizer
             _originalDropRarities.Clear();
         }
 
+        // Run progress: stage*3 + level, so enemy escalation climbs within stages and jumps
+        // between them. 0 outside a run.
+        static int CurrentEscalation()
+        {
+            try
+            {
+                var map = Game.StageMap;
+                if (map == null) return 0;
+                return map.CurrentStage * 3 + map.CurrentLevel;
+            }
+            catch { return 0; }
+        }
+
+        // ---- Captured enemy tech ---------------------------------------------------------------
+
+        // A seeded handful of enemy defense buildings become buildable player blueprints for this
+        // seed: Rare+ cards, real cost, and everything else (rolls, turret shuffle, weapon
+        // pricing) applies its twist on top. Restored cleanly on mode change.
+        readonly List<string> _capturedTechIds = new List<string>();
+        readonly Dictionary<string, EntityBalancingParameters> _capturedTechOriginals = new Dictionary<string, EntityBalancingParameters>();
+
+        void ApplyCapturedTech(int seed)
+        {
+            EntityBalancingStore.Init();
+            var candidates = new List<string>();
+            foreach (string entityId in EntityBalancingStore.AllEntityIds())
+            {
+                try
+                {
+                    if (EntityBalancingStore.IsInactive(entityId)) continue;
+                    if (!EntityBalancingStore.IsAllowedForAi(entityId)) continue;
+                    if (EntityBalancingStore.IsAllowedAsBlueprint(entityId)) continue;
+                    if (!EntityBalancingStore.IsBuilding(entityId)) continue;
+                    if (!EntityBalancingStore.HasRole(entityId, UnitRole.Turret)) continue;
+                    if ((EntityBalancingStore.Tech(entityId) & Tech.Ancient) != 0) continue;
+                    if (EntityBalancingStore.Cost(entityId, returnOriginalValueFromBalancingFile: true) <= 0) continue;
+                    candidates.Add(entityId);
+                }
+                catch { }
+            }
+            candidates.Sort(StringComparer.Ordinal);
+            if (candidates.Count == 0) return;
+
+            var rand = new System.Random(seed ^ 0x0CAF7EC);
+            int count = Mathf.Min(_capturedTechCount.Value, candidates.Count);
+            for (int n = 0; n < count && candidates.Count > 0; n++)
+            {
+                string pick = candidates[rand.Next(candidates.Count)];
+                candidates.Remove(pick);
+                if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(pick, out int index)) continue;
+
+                var parameters = EntityBalancingStore.EntityBalancingParametersList[index];
+                _capturedTechOriginals[pick] = parameters;
+                parameters.isAllowedAsBlueprint = true;
+                parameters.rarity = n == 0 ? Rarity.Rare : Rarity.UltraRare;
+                parameters.neededExperienceLevel = 0;
+                EntityBalancingStore.EntityBalancingParametersList[index] = parameters;
+                _capturedTechIds.Add(pick);
+            }
+            if (_capturedTechIds.Count > 0)
+                RCMManager.Log("Randomizer: captured tech unlocked: " + string.Join(", ", _capturedTechIds));
+        }
+
+        void RestoreCapturedTech()
+        {
+            foreach (var original in _capturedTechOriginals)
+            {
+                if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(original.Key, out int index)) continue;
+                EntityBalancingStore.EntityBalancingParametersList[index] = original.Value;
+            }
+            _capturedTechOriginals.Clear();
+            _capturedTechIds.Clear();
+        }
+
         // ---- Luck ----------------------------------------------------------------------------
 
         // "Harder difficulty, better loot": Engaged is the game's standard mode, Relaxed and
@@ -346,14 +445,16 @@ namespace RCM_Randomizer
             {
                 var meta = MetaGame.Instance;
                 if (meta == null) return 0f;
+                // retuned down: with Engaged at 1.0 even baseline runs rolled too generously
+                // ("low difficulty gets too strong weapons") — the ladder should earn the loot
                 float difficultyBase;
                 switch (meta.ChosenDifficulty)
                 {
-                    case MetaGame.Difficulty.Engaged: difficultyBase = 1.0f; break;
-                    case MetaGame.Difficulty.Relaxed: difficultyBase = 0.4f; break;
+                    case MetaGame.Difficulty.Engaged: difficultyBase = 0.5f; break;
+                    case MetaGame.Difficulty.Relaxed: difficultyBase = 0.2f; break;
                     default: difficultyBase = 0f; break;
                 }
-                return (difficultyBase + 0.25f * meta.CurrentAscensionLevel + 0.35f * meta.CurrentHeat) * _luckScale.Value;
+                return (difficultyBase + 0.3f * meta.CurrentAscensionLevel + 0.4f * meta.CurrentHeat) * _luckScale.Value;
             }
             catch { return 0f; }
         }
