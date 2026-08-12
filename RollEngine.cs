@@ -280,10 +280,10 @@ namespace RCM_Randomizer
             string cardId = EntityBalancingStore.FactoryEntityId(entityId) ?? entityId;
             switch (EntityBalancingStore.Rarity(cardId))
             {
-                case Rarity.Common: return 0.06f;
-                case Rarity.Rare: return 0.12f;
-                case Rarity.UltraRare: return 0.25f;
-                default: return 0.06f;
+                case Rarity.Common: return 0.12f;
+                case Rarity.Rare: return 0.22f;
+                case Rarity.UltraRare: return 0.35f;
+                default: return 0.12f;
             }
         }
 

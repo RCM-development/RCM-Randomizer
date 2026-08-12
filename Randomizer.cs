@@ -145,6 +145,12 @@ namespace RCM_Randomizer
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
                 if (_rollUpgrades.Value) UpgradeRolls.Apply(seed, _intensity.Value, luck);
+                // ONE cache refresh for the whole batch: registering each change individually
+                // rebuilt every cached card ~270 times in a single frame, a hard stutter at
+                // run start in PerRun mode (PerSave hid it in the menu)
+                EntityBalancingStore.InvalidateCache();
+                Game.UpdateAllCachedCards();
+                RefreshSpawnedEntities();
                 _appliedSeed = seed;
                 _appliedConfigSignature = signature;
                 RefreshUi();
@@ -155,15 +161,20 @@ namespace RCM_Randomizer
             }
         }
 
-        // SetInGameCardChanges survives within a scene but the game clears the store on many
-        // transitions; cheapest reliable probe is whether our first id is still registered.
+        // Changes survive within a scene but the game clears the store on many transitions;
+        // probe whether our first id is still registered (directly, no cache churn).
         bool EntityBalancingStoreHasOurChanges()
         {
-            if (_appliedChangeIds.Count == 0) return false;
-            var changes = EntityBalancingStore.RemoveInGameCardChanges(_appliedChangeIds[0]);
-            if (changes == null) return false;
-            EntityBalancingStore.SetInGameCardChanges(_appliedChangeIds[0], changes, SourceCardId(_appliedChangeIds[0]));
-            return true;
+            return _appliedChangeIds.Count > 0
+                && EntityBalancingStore.InGameCardChanges.ContainsKey(_appliedChangeIds[0]);
+        }
+
+        // Register without the per-call cache rebuild SetInGameCardChanges does; callers batch
+        // one InvalidateCache + UpdateAllCachedCards at the end.
+        static void RegisterChangesQuietly(int uniqueChangeId, List<CardChangeScriptableObject> changes, CardId source)
+        {
+            EntityBalancingStore.InGameCardChanges[uniqueChangeId] = changes;
+            EntityBalancingStore.SourceOfInGameCardChangesFromUniqueEntityId[uniqueChangeId] = source;
         }
 
         void ApplyRolls(int seed, float luck)
@@ -200,23 +211,32 @@ namespace RCM_Randomizer
 
                 string locaKey = LocaKeyFor(roll.UniqueChangeId);
                 SetLocaText(locaKey, roll.Label);
-                EntityBalancingStore.SetInGameCardChanges(roll.UniqueChangeId, changes, new CardId(CardId.CardType.GlobalLocaId, locaKey));
+                RegisterChangesQuietly(roll.UniqueChangeId, changes, new CardId(CardId.CardType.GlobalLocaId, locaKey));
                 _appliedChangeIds.Add(roll.UniqueChangeId);
             }
-            RefreshSpawnedEntities();
             RCMManager.Log($"Randomizer: {rolls.Count} cards rolled, {skillCount} with skills (seed {seed}, {_mode.Value}, luck {luck:F2})");
         }
 
         void RemoveRolls()
         {
-            foreach (int id in _appliedChangeIds) EntityBalancingStore.RemoveInGameCardChanges(id);
+            bool hadChanges = _appliedChangeIds.Count > 0;
+            foreach (int id in _appliedChangeIds)
+            {
+                EntityBalancingStore.InGameCardChanges.Remove(id);
+                EntityBalancingStore.SourceOfInGameCardChangesFromUniqueEntityId.Remove(id);
+            }
             _appliedChangeIds.Clear();
             _appliedSeed = null;
             _appliedConfigSignature = null;
             SkillInjector.ClearAssignments();
             RestoreDropRarities();
             UpgradeRolls.Restore();
-            RefreshSpawnedEntities();
+            if (hadChanges)
+            {
+                EntityBalancingStore.InvalidateCache();
+                Game.UpdateAllCachedCards();
+                RefreshSpawnedEntities();
+            }
         }
 
         // ---- Drop rarity promotion -------------------------------------------------------------
@@ -359,7 +379,7 @@ namespace RCM_Randomizer
             if (changes.Count == 0) return;
 
             SetLocaText(WeaponPricingLocaKey, "Weapon swap");
-            EntityBalancingStore.SetInGameCardChanges(WeaponPricingChangeId, changes,
+            RegisterChangesQuietly(WeaponPricingChangeId, changes,
                 new CardId(CardId.CardType.GlobalLocaId, WeaponPricingLocaKey));
             _appliedChangeIds.Add(WeaponPricingChangeId);
         }

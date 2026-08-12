@@ -35,11 +35,8 @@ namespace RCM_Randomizer
                 try { if (RollOne(upgradeId, seed, intensity, luck)) rolled++; }
                 catch { }
             }
-            if (rolled > 0)
-            {
-                try { EntityBalancingStore.InvalidateCache(); Game.UpdateAllCachedCards(); } catch { }
-                TestMod.RCMManager.Log($"Randomizer: {rolled} upgrade cards rolled");
-            }
+            // the caller batches one cache refresh for the whole reapply
+            if (rolled > 0) TestMod.RCMManager.Log($"Randomizer: {rolled} upgrade cards rolled");
         }
 
         static bool RollOne(string upgradeId, int seed, float intensity, float luck)
