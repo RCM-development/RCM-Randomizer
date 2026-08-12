@@ -28,37 +28,91 @@ namespace RCM_Randomizer
             public bool HighEnd;         // only rolls on Rare/UltraRare cards
             public float WeaponNerf = 1f; // caster archetype: own weapon damage multiplier (budget-credited)
             public Func<List<IEntityAction>> BuildActions;
+            // Skills that depend on content we have to find at runtime (prefabs, donor actions)
+            // answer here whether that content exists. A skill that cannot build its actions is
+            // never offered, so no card ever promises a button that only burns mana.
+            public Func<bool> IsAvailable;
         }
 
         // Set from config: the Hijack prototype is experimental (side switching) and ships off.
         public static bool EnableHijack;
 
-        // Mines are prefabs, not balancing entities: steal the prefab reference out of the
-        // DropMines entity's own SpawnObject action at first use.
-        static GameObject _minePrefab;
+        // A mine is not a balancing entity we can name, so Minefield borrows a real mine layer's
+        // own SpawnObject action: cloning it inherits whatever the game authored — the prefab or
+        // entity id, the controller-init flag, the placement rules — and only the origin is
+        // retargeted to the skill's chosen location. Guessing a single id ("DropMines") found
+        // nothing and shipped a skill that silently ate mana, so the search is over every
+        // mine-named entity and the skill is withheld entirely when none of them yields a spawner.
+        static SpawnObject _mineSpawner;
         static bool _mineResolved;
 
-        static GameObject ResolveMinePrefab()
+        static SpawnObject ResolveMineSpawner()
         {
-            if (_mineResolved) return _minePrefab;
+            if (_mineResolved) return _mineSpawner;
             _mineResolved = true;
             try
             {
                 EntityBalancingStore.Init();
-                var dropPrefab = UnityEngine.Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation("DropMines"));
-                var controller = dropPrefab != null ? dropPrefab.GetComponent<EntityController>() : null;
-                if (controller != null)
-                    foreach (var entityEvent in controller.events)
-                        foreach (var action in entityEvent.actions)
-                            if (action is SpawnObject spawner && spawner.prefab != null)
-                            {
-                                _minePrefab = spawner.prefab;
-                                return _minePrefab;
-                            }
+                foreach (string donorId in MineDonorIds())
+                {
+                    _mineSpawner = FindSpawner(donorId);
+                    if (_mineSpawner == null) continue;
+                    RCMManager.Log("Randomizer: Minefield takes its mine from " + donorId);
+                    return _mineSpawner;
+                }
             }
-            catch (Exception e) { RCMManager.Log("Randomizer: mine prefab resolution failed (" + e.Message + ")"); }
-            if (_minePrefab == null) RCMManager.Log("Randomizer: no mine prefab found, Minefield skill will be a dud");
-            return _minePrefab;
+            catch (Exception e) { RCMManager.Log("Randomizer: mine resolution failed (" + e.Message + ")"); }
+            RCMManager.Log("Randomizer: no mine layer found, Minefield will not be offered");
+            return null;
+        }
+
+        // Drop-style entities first: they exist only to place their payload, so their first
+        // spawner IS the mine, while a mine-laying vehicle may also spawn wrecks or effects.
+        static List<string> MineDonorIds()
+        {
+            var ids = EntityBalancingStore.AllEntityIds()
+                .Where(id => id.IndexOf("mine", StringComparison.OrdinalIgnoreCase) >= 0)
+                .ToList();
+            ids.Sort((a, b) =>
+            {
+                int aDrop = a.StartsWith("Drop", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+                int bDrop = b.StartsWith("Drop", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+                return aDrop != bDrop ? aDrop - bDrop : string.CompareOrdinal(a, b);
+            });
+            return ids;
+        }
+
+        static SpawnObject FindSpawner(string entityId)
+        {
+            var prefab = UnityEngine.Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation(entityId));
+            var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
+            if (controller == null || controller.events == null) return null;
+            foreach (var entityEvent in controller.events)
+            {
+                var found = FindSpawner(entityEvent.actions);
+                if (found != null) return found;
+                if (entityEvent.conditionalActions == null) continue;
+                foreach (var conditional in entityEvent.conditionalActions)
+                {
+                    found = FindSpawner(conditional.actions);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        static SpawnObject FindSpawner(List<IEntityAction> actions)
+        {
+            if (actions == null) return null;
+            foreach (var action in actions)
+            {
+                if (!(action is SpawnObject spawner)) continue;
+                bool spawnsSomething = spawner.spawn == SpawnObject.Spawn.Prefab
+                    ? spawner.prefab != null
+                    : spawner.spawn == SpawnObject.Spawn.EntityId && !string.IsNullOrEmpty(spawner.entityId);
+                if (spawnsSomething) return (SpawnObject)spawner.Clone;
+            }
+            return null;
         }
 
         static SpawnObject SpawnAtTarget(Action<SpawnObject> configure)
@@ -82,13 +136,28 @@ namespace RCM_Randomizer
                 Id = "minefield", ShortName = "Minefield", ManaCost = 45f, Power = 0.20f,
                 Description = "Scatter 4 mines at the target location.",
                 Target = TargetOrigin.ChosenLocation, SkillRange = 7,
+                IsAvailable = () => ResolveMineSpawner() != null,
                 BuildActions = () =>
                 {
                     var actions = new List<IEntityAction>();
-                    var minePrefab = ResolveMinePrefab();
-                    if (minePrefab != null)
-                        for (int i = 0; i < 4; i++)
-                            actions.Add(SpawnAtTarget(s => { s.spawn = SpawnObject.Spawn.Prefab; s.prefab = minePrefab; }));
+                    var template = ResolveMineSpawner();
+                    if (template == null) return actions;
+                    for (int i = 0; i < 4; i++)
+                    {
+                        var spawner = (SpawnObject)template.Clone;
+                        spawner.operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self;
+                        spawner.startingPosition = SpawnObject.StartingPosition.PayloadPosition;
+                        spawner.positioningAlgorithm = SpawnObject.PositioningAlgorithm.RandomFreeCellAround;
+                        spawner.tagHandling = SpawnObject.OverwriteTagOption.OverwriteWithOwnTag;
+                        // the donor may cap its live mines, parent them to itself or reuse one
+                        // position for a whole salvo; ours are four independent one-shot mines
+                        spawner.maxLivingObjects = 0;
+                        spawner.additionalCopiesToSpawn = 0;
+                        spawner.spawnAsChildObject = false;
+                        spawner.mimicOriginSelectionStatus = false;
+                        spawner.useFirstCalculatedPositionForAllUnits = false;
+                        actions.Add(spawner);
+                    }
                     return actions;
                 }
             },
@@ -319,7 +388,7 @@ namespace RCM_Randomizer
         };
 
         public static IReadOnlyList<RollEngine.SkillOption> Options =>
-            Catalog.Where(s => s.Id != "hijack" || EnableHijack)
+            Catalog.Where(s => (s.Id != "hijack" || EnableHijack) && (s.IsAvailable == null || s.IsAvailable()))
             .Select(s => new RollEngine.SkillOption
             {
                 Id = s.Id, ShortName = s.ShortName, Power = s.Power,
@@ -375,6 +444,16 @@ namespace RCM_Randomizer
             var spec = Get(skillId);
             if (spec == null) return;
 
+            // build first: a skill whose content could not be resolved must leave the unit exactly
+            // as it was. Stripping first and discovering the replacement is empty afterwards is how
+            // a turret planter ends up with a button that only drains its mana.
+            var actions = spec.BuildActions();
+            if (actions == null || actions.Count == 0)
+            {
+                RCMManager.Log("Randomizer: skill '" + spec.Id + "' built no actions, leaving " + entityId + " alone");
+                return;
+            }
+
             // strip any existing skill actions (the unit's own, or ours from an earlier re-init;
             // removing then re-adding keeps this idempotent)
             entity.events.RemoveAll(e => e.@event == EntityController.Event.OnActivateSkill);
@@ -392,7 +471,7 @@ namespace RCM_Randomizer
                 };
 
             var skillEvent = new EntityEvent { @event = EntityController.Event.OnActivateSkill };
-            skillEvent.actions.AddRange(spec.BuildActions());
+            skillEvent.actions.AddRange(actions);
             skillEvent.actions.Add(new MarkActiveSkill { marker = MarkActiveSkill.Marker.ExecuteNextCommandInChain });
             entity.events.Add(skillEvent);
         }

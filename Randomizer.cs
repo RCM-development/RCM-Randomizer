@@ -97,7 +97,9 @@ namespace RCM_Randomizer
                 "Consumable drops roll too: damage, radius, duration, heal and credit numbers vary within the rarity band. Their tooltips show the resulting values automatically.");
             _promoteDropRarities = Config.Bind("Drops", "PromoteRarities", true,
                 "Reassign the strongest drops to Rare/UltraRare. All stock drops are Common, so the shop's Rare/UltraRare drop slots never appear; this turns them on and gives strong drops bigger roll bands.");
-            _skillReplaceChance = Config.Bind("Skills", "ReplaceExistingChance", 0.35f,
+            // Off by default: for units like the turret planter the authored skill IS the unit, so
+            // swapping it silently deletes what the card was bought for.
+            _skillReplaceChance = Config.Bind("Skills", "ReplaceExistingChance", 0f,
                 new ConfigDescription("Chance factor that a unit which already HAS a skill gets it swapped for a rolled one (multiplies the normal skill-roll chance; 0 = never touch existing skills).", new AcceptableValueRange<float>(0f, 1f)));
             _rollUpgrades = Config.Bind("Upgrades", "RollEffects", true,
                 "Upgrade cards roll too: effect magnitudes scale within the rarity band, and the numbers in the card text are rewritten to match.");
@@ -240,7 +242,7 @@ namespace RCM_Randomizer
         {
             EntityBalancingStore.Init();
             var rolls = RollEngine.GenerateAll(seed, _intensity.Value, _maxStatsPerRoll.Value, luck, _rollDrops.Value);
-            int skillCount = 0;
+            var skilled = new List<string>();
             foreach (var roll in rolls)
             {
                 var changes = new List<CardChangeScriptableObject>();
@@ -252,7 +254,7 @@ namespace RCM_Randomizer
                     var spec = SkillInjector.Get(roll.SkillId);
                     if (spec != null)
                     {
-                        skillCount++;
+                        skilled.Add(roll.EntityId + "=" + spec.ShortName);
                         SkillInjector.Assign(roll.EntityId, roll.SkillId);
                         // numbers via the card-change layer so the card shows them, as DELTAS
                         // from the unit's own values (a replaced skill already carries a mana
@@ -289,7 +291,9 @@ namespace RCM_Randomizer
                 catch { }
             }
             ApplyDropDescSuffixes();
-            RCMManager.Log($"Randomizer: {rolls.Count} cards rolled, {skillCount} with skills (seed {seed}, {_mode.Value}, luck {luck:F2})");
+            RCMManager.Log($"Randomizer: {rolls.Count} cards rolled, {skilled.Count} with skills (seed {seed}, {_mode.Value}, luck {luck:F2})");
+            // naming them makes "unit X behaves oddly" answerable from the log alone
+            if (skilled.Count > 0) RCMManager.Log("Randomizer: skills -> " + string.Join(", ", skilled.ToArray()));
         }
 
         void RemoveRolls()

@@ -334,6 +334,10 @@ namespace RCM_Randomizer
             {
                 if (!EntityBalancingStore.HasRole(entityId, UnitRole.Unit)) return false;
                 if (EntityBalancingStore.HasRole(entityId, UnitRole.Building)) return false;
+                // The engineer's skill button IS its build button, so an active skill there has
+                // nowhere to live. Engineers get their per-seed variety from stat rolls and the
+                // global engineer trait instead.
+                if (EntityBalancingStore.HasRole(entityId, UnitRole.Engineer)) return false;
                 return EntityBalancingStore.ProductEntityId(entityId) == null;
             }
             catch { return false; }
