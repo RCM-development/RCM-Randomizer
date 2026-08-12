@@ -57,6 +57,9 @@ namespace RCM_Randomizer
         // Chance factor for swapping out a skill the unit already owns (0 = never).
         public static float ReplaceExistingSkillChance = 0.35f;
 
+        // Entities exempt from stat rolls entirely (config: General.RollExcludeIds).
+        public static HashSet<string> ExcludedIds = new HashSet<string>();
+
         // ---- Catalog: every rollable ChangeableValue with its power weight -------------------
         // Weights start from a log-log fit of cost vs stats on the game's own balancing table
         // (see docs/balance-analysis.md §3) plus per-hit reasoning for shield/armor.
@@ -206,6 +209,7 @@ namespace RCM_Randomizer
 
         static EntityRoll GenerateForEntity(string entityId, int seed, float intensity, int maxStatsPerRoll, int uniqueId, float luck)
         {
+            if (ExcludedIds.Contains(entityId)) return null;
             var rand = new Random(seed ^ Fnv1a(entityId));
             float range = RarityRange(entityId) * intensity;
             if (range <= 0f) return null;

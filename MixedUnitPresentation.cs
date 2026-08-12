@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using TestMod;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace RCM_Randomizer
 {
@@ -107,13 +108,59 @@ namespace RCM_Randomizer
 
                 yield return new WaitForEndOfFrame(); // URP renders the enabled camera this frame
 
-                try { CaptureFromBooth(request.Key, rt); }
-                finally
+                // async GPU readback where supported: ReadPixels stalls the whole pipeline until
+                // the GPU catches up, which showed up as a hitch whenever a factory prespawned
+                // new unit types. The async request costs nothing on the main thread.
+                if (SystemInfo.supportsAsyncGPUReadback)
                 {
-                    RenderTexture.ReleaseTemporary(rt);
-                    UnityEngine.Object.Destroy(booth);
+                    var readback = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32);
+                    while (!readback.done) yield return null;
+                    try
+                    {
+                        if (!readback.hasError) CaptureFromReadback(request.Key, readback);
+                        else CaptureFromBooth(request.Key, rt); // fall back to the sync path
+                    }
+                    finally
+                    {
+                        RenderTexture.ReleaseTemporary(rt);
+                        UnityEngine.Object.Destroy(booth);
+                    }
+                }
+                else
+                {
+                    try { CaptureFromBooth(request.Key, rt); }
+                    finally
+                    {
+                        RenderTexture.ReleaseTemporary(rt);
+                        UnityEngine.Object.Destroy(booth);
+                    }
                 }
                 yield return pause;
+            }
+        }
+
+        static void CaptureFromReadback(string entityId, AsyncGPUReadbackRequest readback)
+        {
+            var texture = new Texture2D(PortraitSize, PortraitSize, TextureFormat.RGBA32, mipChain: false);
+            texture.LoadRawTextureData(readback.GetData<byte>());
+            texture.Apply();
+            StorePortrait(entityId, texture);
+        }
+
+        static void StorePortrait(string entityId, Texture2D texture)
+        {
+            if (LooksEmpty(texture))
+            {
+                // keep the stock sprite rather than caching a blank square
+                UnityEngine.Object.Destroy(texture);
+                RCMManager.Log("Randomizer: portrait of " + entityId + " came out empty, keeping stock image");
+            }
+            else
+            {
+                EntityBalancingStore.ImageOf[entityId] = Sprite.Create(
+                    texture, new Rect(0, 0, PortraitSize, PortraitSize), new Vector2(0.5f, 0.5f), 100f);
+                Game.UpdateAllCachedCards();
+                RCMManager.Log("Randomizer: captured portrait of " + entityId);
             }
         }
 
@@ -126,20 +173,7 @@ namespace RCM_Randomizer
                 var texture = new Texture2D(PortraitSize, PortraitSize, TextureFormat.ARGB32, mipChain: false);
                 texture.ReadPixels(new Rect(0, 0, PortraitSize, PortraitSize), 0, 0);
                 texture.Apply();
-
-                if (LooksEmpty(texture))
-                {
-                    // keep the stock sprite rather than caching a blank square
-                    UnityEngine.Object.Destroy(texture);
-                    RCMManager.Log("Randomizer: portrait of " + entityId + " came out empty, keeping stock image");
-                }
-                else
-                {
-                    EntityBalancingStore.ImageOf[entityId] = Sprite.Create(
-                        texture, new Rect(0, 0, PortraitSize, PortraitSize), new Vector2(0.5f, 0.5f), 100f);
-                    Game.UpdateAllCachedCards();
-                    RCMManager.Log("Randomizer: captured portrait of " + entityId);
-                }
+                StorePortrait(entityId, texture);
             }
             finally
             {

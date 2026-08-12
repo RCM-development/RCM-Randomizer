@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using BepInEx;
@@ -45,6 +46,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _promoteDropRarities;
         ConfigEntry<float> _skillReplaceChance;
         ConfigEntry<bool> _rollUpgrades;
+        ConfigEntry<string> _rollExcludeIds;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
@@ -89,8 +91,12 @@ namespace RCM_Randomizer
                 new ConfigDescription("Chance factor that a unit which already HAS a skill gets it swapped for a rolled one (multiplies the normal skill-roll chance; 0 = never touch existing skills).", new AcceptableValueRange<float>(0f, 1f)));
             _rollUpgrades = Config.Bind("Upgrades", "RollEffects", true,
                 "Upgrade cards roll too: effect magnitudes scale within the rarity band, and the numbers in the card text are rewritten to match.");
+            _rollExcludeIds = Config.Bind("General", "RollExcludeIds", "DropFireMissiles",
+                "Comma-separated entityIds exempt from stat rolls. DropFireMissiles is excluded by default while we verify a reported impact-offset issue.");
             RollEngine.ReplaceExistingSkillChance = _skillReplaceChance.Value;
             SkillInjector.AllowReplaceExisting = _skillReplaceChance.Value > 0f;
+            RollEngine.ExcludedIds = new HashSet<string>(
+                (_rollExcludeIds.Value ?? "").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0));
 
             RCMManager.ConnectMod("Randomizer").ContinueWith(t =>
             {
@@ -386,9 +392,17 @@ namespace RCM_Randomizer
                 return;
             }
 
-            _donorMap = RollEngine.GenerateDonorMap(seed, supported, ModelFootprint, _turretMaxSizeRatio.Value);
+            // neutral wildlife (ElectroDeer, LavaDweller...) sits in the compat list but should
+            // neither give nor receive turrets: filter it from the map and opt it out ("") so the
+            // mixer's own per-spawn random skips it too
+            var relevant = supported.Where(IsPlayerRelevant).ToList();
+            _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value);
             var map = _donorMap;
-            selectorField.SetValue(null, new Func<string, string>(id => map.TryGetValue(id, out var donor) ? donor : null));
+            selectorField.SetValue(null, new Func<string, string>(id =>
+            {
+                if (map.TryGetValue(id, out var donor)) return donor;
+                return IsPlayerRelevant(id) ? null : "";
+            }));
             MixedUnitPresentation.ApplyMixedNames(_donorMap);
             MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns
             _turretStatus = $"{_donorMap.Count}/{supported.Count} pairs";
@@ -408,13 +422,28 @@ namespace RCM_Randomizer
             foreach (var pair in _donorMap)
             {
                 float costMult;
+                float rangeRatio = 1f;
                 try
                 {
                     float delta = RollEngine.WeaponTransferPowerDelta(pair.Key, pair.Value);
+
+                    // the weapon's RANGE travels with it: a short-range gun on a long-range
+                    // chassis must drive in close (and vice versa), and the delta is priced
+                    float baseRange = EntityBalancingStore.WeaponRange(pair.Key, returnOriginalValueFromBalancingFile: true);
+                    float donorRange = EntityBalancingStore.WeaponRange(pair.Value, returnOriginalValueFromBalancingFile: true);
+                    if (baseRange > 0.01f && donorRange > 0.01f)
+                    {
+                        rangeRatio = donorRange / baseRange;
+                        delta += 0.45f * Mathf.Log(rangeRatio);
+                    }
+
                     costMult = Mathf.Clamp(Mathf.Exp(delta / 1.15f), 0.6f, 2f);
                 }
                 catch { continue; }
                 if (overrides.TryGetValue(pair.Value, out float extra)) costMult *= extra;
+
+                if (Mathf.Abs(rangeRatio - 1f) > 0.02f)
+                    changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.WeaponRange, rangeRatio, pair.Key));
                 if (Mathf.Abs(costMult - 1f) < 0.02f) continue;
 
                 changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Cost, costMult, pair.Key));
@@ -464,6 +493,20 @@ namespace RCM_Randomizer
         static class Patch_EntityController_Init
         {
             static void Postfix(EntityController __instance) => _instance?.OnEntityInit(__instance);
+        }
+
+        // Neutral map wildlife is Ancient tech and neither buildable nor AI-built; keep the
+        // randomizer's hands off it.
+        static bool IsPlayerRelevant(string entityId)
+        {
+            try
+            {
+                if ((EntityBalancingStore.Tech(entityId) & Tech.Ancient) != 0) return false;
+                return EntityBalancingStore.IsAllowedAsBlueprint(entityId)
+                    || EntityBalancingStore.IsAllowedForAi(entityId)
+                    || EntityBalancingStore.FactoryEntityId(entityId) != null;
+            }
+            catch { return false; }
         }
 
         // Does this unit's prefab already define an active skill? Read straight off the prefab

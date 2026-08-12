@@ -94,6 +94,102 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
+                Id = "turbo", ShortName = "Turbo", ManaCost = 25f, Power = 0.10f,
+                Description = "Floor it: +60% movement speed for 6 seconds.",
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new ChangeSpecificValue
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        valueToChange = EntityController.ChangeableValue.MoveSpeed,
+                        addType = SpecificValueChange.AddType.Relative,
+                        valueToAddSource = ChangeSpecificValue.ValueToAddSource.One,
+                        multiplier = 0.6f,
+                        isStackable = false,
+                        originatorIdOption = ChangeSpecificValue.OriginatorIdOption.GivenString,
+                        originatorId = "rcmSkillTurbo",
+                        durationType = ChangeSpecificValue.DurationType.Seconds,
+                        durationSource = EntityActionDuration.MultipleEntitySource.One,
+                        durationMultiplier = 6f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
+                Id = "frenzy", ShortName = "Frenzy", ManaCost = 35f, Power = 0.16f,
+                Description = "Fire frenzy: attacks come 40% faster for 8 seconds.",
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new ChangeSpecificValue
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        valueToChange = EntityController.ChangeableValue.AttackCooldown,
+                        addType = SpecificValueChange.AddType.Relative,
+                        valueToAddSource = ChangeSpecificValue.ValueToAddSource.One,
+                        multiplier = -0.4f,
+                        isStackable = false,
+                        originatorIdOption = ChangeSpecificValue.OriginatorIdOption.GivenString,
+                        originatorId = "rcmSkillFrenzy",
+                        durationType = ChangeSpecificValue.DurationType.Seconds,
+                        durationSource = EntityActionDuration.MultipleEntitySource.One,
+                        durationMultiplier = 8f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
+                Id = "cloak", ShortName = "Cloak", ManaCost = 40f, Power = 0.15f,
+                Description = "Engage cloaking for 5 seconds.",
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new SetStatusEffect
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        option = SetStatusEffect.Option.Set,
+                        statusEffect = StatusEffect.Stealth,
+                        durationType = SetStatusEffect.DurationType.Seconds,
+                        durationSource = EntityActionDuration.MultipleEntitySource.One,
+                        durationMultiplier = 5f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
+                Id = "warcry", ShortName = "War Cry", ManaCost = 30f, Power = 0.12f,
+                Description = "Taunt: nearby enemies attack this unit for 5 seconds.",
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new SetStatusEffect
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        option = SetStatusEffect.Option.Set,
+                        statusEffect = StatusEffect.Taunt,
+                        durationType = SetStatusEffect.DurationType.Seconds,
+                        durationSource = EntityActionDuration.MultipleEntitySource.One,
+                        durationMultiplier = 5f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
+                Id = "mark", ShortName = "Mark", ManaCost = 30f, Power = 0.12f,
+                Description = "Mark the target enemy for 8 seconds.",
+                Target = TargetOrigin.ChosenEntity, SkillRange = 8, TargetEnemiesOnly = true,
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new SetStatusEffect
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Other,
+                        option = SetStatusEffect.Option.Set,
+                        statusEffect = StatusEffect.Marked,
+                        durationType = SetStatusEffect.DurationType.Seconds,
+                        durationSource = EntityActionDuration.MultipleEntitySource.One,
+                        durationMultiplier = 8f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
                 Id = "stasis", ShortName = "Stasis", ManaCost = 45f, Power = 0.18f,
                 Description = "Stun the target enemy for 3 seconds.",
                 Target = TargetOrigin.ChosenEntity, SkillRange = 7, TargetEnemiesOnly = true,
