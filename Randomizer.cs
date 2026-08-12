@@ -135,6 +135,7 @@ namespace RCM_Randomizer
                     ReapplyLocaInjections();
                     SkillInjector.ReapplyDescriptions();
                     UpgradeRolls.ReapplyDescriptions();
+                    ApplyDropDescSuffixes();
                     if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
                     return;
                 }
@@ -213,7 +214,17 @@ namespace RCM_Randomizer
                 SetLocaText(locaKey, roll.Label);
                 RegisterChangesQuietly(roll.UniqueChangeId, changes, new CardId(CardId.CardType.GlobalLocaId, locaKey));
                 _appliedChangeIds.Add(roll.UniqueChangeId);
+
+                // drop cards have no stat lines that could turn green, and much of their text is
+                // static prose, so a roll is invisible there: put the roll label into the card text
+                try
+                {
+                    if (EntityBalancingStore.HasRole(roll.EntityId, UnitRole.Drop))
+                        _dropDescSuffixes[roll.EntityId.Trim().ToLowerInvariant()] = "<i>" + roll.Label + "</i>";
+                }
+                catch { }
             }
+            ApplyDropDescSuffixes();
             RCMManager.Log($"Randomizer: {rolls.Count} cards rolled, {skillCount} with skills (seed {seed}, {_mode.Value}, luck {luck:F2})");
         }
 
@@ -230,6 +241,7 @@ namespace RCM_Randomizer
             _appliedConfigSignature = null;
             SkillInjector.ClearAssignments();
             RestoreDropRarities();
+            RestoreDropDescSuffixes();
             UpgradeRolls.Restore();
             if (hadChanges)
             {
@@ -237,6 +249,38 @@ namespace RCM_Randomizer
                 Game.UpdateAllCachedCards();
                 RefreshSpawnedEntities();
             }
+        }
+
+        // ---- Drop roll visibility ----------------------------------------------------------------
+
+        readonly Dictionary<string, string> _dropDescSuffixes = new Dictionary<string, string>(); // lowercased entityId -> label
+        readonly Dictionary<string, Dictionary<string, string>> _savedDropDescriptions = new Dictionary<string, Dictionary<string, string>>(); // language -> id -> original
+
+        void ApplyDropDescSuffixes()
+        {
+            if (_dropDescSuffixes.Count == 0) return;
+            if (Loca.BlueprintDescriptionDictionary.Count < 1) Loca.Init();
+            foreach (var language in Loca.BlueprintDescriptionDictionary)
+            {
+                if (!_savedDropDescriptions.TryGetValue(language.Key, out var saved))
+                    _savedDropDescriptions[language.Key] = saved = new Dictionary<string, string>();
+                foreach (var suffix in _dropDescSuffixes)
+                {
+                    if (!language.Value.TryGetValue(suffix.Key, out string current)) continue;
+                    if (!saved.ContainsKey(suffix.Key)) saved[suffix.Key] = current;
+                    language.Value[suffix.Key] = saved[suffix.Key] + "\n" + suffix.Value;
+                }
+            }
+        }
+
+        void RestoreDropDescSuffixes()
+        {
+            foreach (var language in _savedDropDescriptions)
+                if (Loca.BlueprintDescriptionDictionary.TryGetValue(language.Key, out var dict))
+                    foreach (var entry in language.Value)
+                        dict[entry.Key] = entry.Value;
+            _savedDropDescriptions.Clear();
+            _dropDescSuffixes.Clear();
         }
 
         // ---- Drop rarity promotion -------------------------------------------------------------
