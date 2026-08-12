@@ -598,12 +598,14 @@ namespace RCM_Randomizer
         }
 
         // Neutral map wildlife is Ancient tech and neither buildable nor AI-built; keep the
-        // randomizer's hands off it.
+        // randomizer's hands off it. Ancient TURRETS are the exception: those should surprise —
+        // a different weapon per seed that you only learn by walking into it.
         static bool IsPlayerRelevant(string entityId)
         {
             try
             {
-                if ((EntityBalancingStore.Tech(entityId) & Tech.Ancient) != 0) return false;
+                if ((EntityBalancingStore.Tech(entityId) & Tech.Ancient) != 0)
+                    return EntityBalancingStore.HasRole(entityId, UnitRole.Turret);
                 return EntityBalancingStore.IsAllowedAsBlueprint(entityId)
                     || EntityBalancingStore.IsAllowedForAi(entityId)
                     || EntityBalancingStore.FactoryEntityId(entityId) != null;

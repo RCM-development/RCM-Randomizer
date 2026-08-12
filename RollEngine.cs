@@ -161,6 +161,28 @@ namespace RCM_Randomizer
 
         static List<List<string>> SizeBands(List<string> bases, Func<string, float> sizeOf, float maxSizeRatio)
         {
+            // categories first: turrets/buildings trade among themselves, mobile units among
+            // themselves — a fortress gun on a scout bike broke the category promise cards make
+            var byCategory = bases.GroupBy(CategoryOf).OrderBy(g => g.Key, StringComparer.Ordinal);
+            var allBands = new List<List<string>>();
+            foreach (var category in byCategory)
+                allBands.AddRange(SizeBandsWithinCategory(category.ToList(), sizeOf, maxSizeRatio));
+            return allBands;
+        }
+
+        static string CategoryOf(string entityId)
+        {
+            try
+            {
+                if (EntityBalancingStore.HasRole(entityId, UnitRole.Turret)) return "turret";
+                if (EntityBalancingStore.HasRole(entityId, UnitRole.Building)) return "building";
+                return "unit";
+            }
+            catch { return "unit"; }
+        }
+
+        static List<List<string>> SizeBandsWithinCategory(List<string> bases, Func<string, float> sizeOf, float maxSizeRatio)
+        {
             if (sizeOf == null) return new List<List<string>> { bases };
 
             var sized = bases
