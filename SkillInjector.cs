@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using TestMod;
+using UnityEngine;
 
 namespace RCM_Randomizer
 {
@@ -29,9 +30,96 @@ namespace RCM_Randomizer
             public Func<List<IEntityAction>> BuildActions;
         }
 
+        // Set from config: the Hijack prototype is experimental (side switching) and ships off.
+        public static bool EnableHijack;
+
+        // Mines are prefabs, not balancing entities: steal the prefab reference out of the
+        // DropMines entity's own SpawnObject action at first use.
+        static GameObject _minePrefab;
+        static bool _mineResolved;
+
+        static GameObject ResolveMinePrefab()
+        {
+            if (_mineResolved) return _minePrefab;
+            _mineResolved = true;
+            try
+            {
+                EntityBalancingStore.Init();
+                var dropPrefab = UnityEngine.Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation("DropMines"));
+                var controller = dropPrefab != null ? dropPrefab.GetComponent<EntityController>() : null;
+                if (controller != null)
+                    foreach (var entityEvent in controller.events)
+                        foreach (var action in entityEvent.actions)
+                            if (action is SpawnObject spawner && spawner.prefab != null)
+                            {
+                                _minePrefab = spawner.prefab;
+                                return _minePrefab;
+                            }
+            }
+            catch (Exception e) { RCMManager.Log("Randomizer: mine prefab resolution failed (" + e.Message + ")"); }
+            if (_minePrefab == null) RCMManager.Log("Randomizer: no mine prefab found, Minefield skill will be a dud");
+            return _minePrefab;
+        }
+
+        static SpawnObject SpawnAtTarget(Action<SpawnObject> configure)
+        {
+            var spawn = new SpawnObject
+            {
+                operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                startingPosition = SpawnObject.StartingPosition.PayloadPosition,
+                positioningAlgorithm = SpawnObject.PositioningAlgorithm.RandomFreeCellAround,
+                tagHandling = SpawnObject.OverwriteTagOption.OverwriteWithOwnTag,
+            };
+            configure(spawn);
+            return spawn;
+        }
+
         // v1: self-targeted skills only — no targeting cursor, no skill aiming, minimal risk.
         public static readonly List<SkillSpec> Catalog = new List<SkillSpec>
         {
+            new SkillSpec
+            {
+                Id = "minefield", ShortName = "Minefield", ManaCost = 45f, Power = 0.20f,
+                Description = "Scatter 4 mines at the target location.",
+                Target = TargetOrigin.ChosenLocation, SkillRange = 7,
+                BuildActions = () =>
+                {
+                    var actions = new List<IEntityAction>();
+                    var minePrefab = ResolveMinePrefab();
+                    if (minePrefab != null)
+                        for (int i = 0; i < 4; i++)
+                            actions.Add(SpawnAtTarget(s => { s.spawn = SpawnObject.Spawn.Prefab; s.prefab = minePrefab; }));
+                    return actions;
+                }
+            },
+            new SkillSpec
+            {
+                Id = "reanimate", ShortName = "Reanimate", ManaCost = 50f, Power = 0.22f, HighEnd = true,
+                Description = "Raise 3 scrap crawlers at the target location. They fall apart after 25 seconds.",
+                Target = TargetOrigin.ChosenLocation, SkillRange = 7,
+                BuildActions = () =>
+                {
+                    var actions = new List<IEntityAction>();
+                    for (int i = 0; i < 3; i++)
+                        actions.Add(SpawnAtTarget(s =>
+                        {
+                            s.spawn = SpawnObject.Spawn.EntityId;
+                            s.entityId = "RoboClawBot";
+                            s.initEntityController = true;
+                            s.timeToLiveSource = EntityActionDuration.MultipleEntitySource.One;
+                            s.timeToLiveMultiplier = 25f;
+                        }));
+                    return actions;
+                }
+            },
+            new SkillSpec
+            {
+                Id = "hijack", ShortName = "Hijack", ManaCost = 80f, Power = 0.50f,
+                Description = "Seize control of the target enemy unit. Diverting this much power cripples this unit's own weapons.",
+                Target = TargetOrigin.ChosenEntity, SkillRange = 5, TargetEnemiesOnly = true,
+                HighEnd = true, WeaponNerf = 0.5f,
+                BuildActions = () => new List<IEntityAction> { new HijackAction() }
+            },
             new SkillSpec
             {
                 Id = "overcharge", ShortName = "Overcharge", ManaCost = 30f, Power = 0.15f,
@@ -231,7 +319,8 @@ namespace RCM_Randomizer
         };
 
         public static IReadOnlyList<RollEngine.SkillOption> Options =>
-            Catalog.Select(s => new RollEngine.SkillOption
+            Catalog.Where(s => s.Id != "hijack" || EnableHijack)
+            .Select(s => new RollEngine.SkillOption
             {
                 Id = s.Id, ShortName = s.ShortName, Power = s.Power,
                 HighEnd = s.HighEnd, WeaponNerf = s.WeaponNerf,

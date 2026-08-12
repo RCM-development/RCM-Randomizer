@@ -40,6 +40,7 @@ namespace RCM_Randomizer
 
         static bool RollOne(string relicId, int seed, float intensity, float luck)
         {
+            if (GeneratedHacks.IsGenerated(relicId)) return false; // authored numbers, don't double-roll
             var relic = RelicBalancingStore.ScriptableObject(relicId);
             if (relic == null || relic.cardChanges == null || relic.cardChanges.Count == 0) return false;
 
