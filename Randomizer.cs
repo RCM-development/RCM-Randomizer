@@ -345,6 +345,9 @@ namespace RCM_Randomizer
 
         static void SetLocaText(string key, string text)
         {
+            // Loca.Translate lowercases ids before lookup (Loca.cs:289), so entries stored with
+            // any capitalisation are never found again
+            key = key.Trim().ToLowerInvariant();
             InjectedLoca[key] = text;
             if (Loca.GlobalDictionary.Count < 1) Loca.Init();
             foreach (var language in Loca.GlobalDictionary.Values) language[key] = text;

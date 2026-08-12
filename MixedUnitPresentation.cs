@@ -23,6 +23,10 @@ namespace RCM_Randomizer
 
         // ---- Names -----------------------------------------------------------------------------
 
+        // Loca.Translate lowercases every id before looking it up (Loca.cs:289), so entries must
+        // be written under the lowercased entityId or they are simply never found.
+        static string LocaKey(string entityId) => entityId.Trim().ToLowerInvariant();
+
         public static void ApplyMixedNames(Dictionary<string, string> donorMap)
         {
             if (Loca.BlueprintNameDictionary.Count < 1) Loca.Init();
@@ -34,10 +38,11 @@ namespace RCM_Randomizer
                 var saved = new Dictionary<string, string>();
                 foreach (var pair in donorMap)
                 {
-                    if (!originals.TryGetValue(pair.Key, out string baseName)) continue;
-                    if (!originals.TryGetValue(pair.Value, out string donorName)) continue;
-                    saved[pair.Key] = baseName;
-                    dict[pair.Key] = baseName + " + " + donorName;
+                    string baseKey = LocaKey(pair.Key);
+                    if (!originals.TryGetValue(baseKey, out string baseName)) continue;
+                    if (!originals.TryGetValue(LocaKey(pair.Value), out string donorName)) continue;
+                    saved[baseKey] = baseName;
+                    dict[baseKey] = baseName + " + " + donorName;
                 }
                 SavedNames[language.Key] = saved;
             }
