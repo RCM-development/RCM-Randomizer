@@ -47,8 +47,12 @@ namespace RCM_Randomizer
         string _turretStatus = "off";
         Dictionary<string, string> _donorMap;
 
+        static Randomizer _instance;
+
         void Awake()
         {
+            _instance = this;
+            new Harmony(IDENTIFIER).PatchAll();
             _mode = Config.Bind("General", "Mode", Mode.PerSave,
                 "Off = stock game. PerSave = rolled once per profile (reroll via UI). PerRun = fresh rolls from each run's Run ID.");
             _intensity = Config.Bind("General", "Intensity", 1.0f,
@@ -187,6 +191,9 @@ namespace RCM_Randomizer
             if (!_turretShuffle.Value || _mode.Value == Mode.Off)
             {
                 selectorField.SetValue(null, null);
+                MixedUnitPresentation.RestoreNames();
+                MixedUnitPresentation.ResetPortraits();
+                _donorMap = null;
                 _turretStatus = "off";
                 return;
             }
@@ -203,7 +210,28 @@ namespace RCM_Randomizer
             _donorMap = RollEngine.GenerateDonorMap(seed, supported, ModelFootprint, _turretMaxSizeRatio.Value);
             var map = _donorMap;
             selectorField.SetValue(null, new Func<string, string>(id => map.TryGetValue(id, out var donor) ? donor : null));
+            MixedUnitPresentation.ApplyMixedNames(_donorMap);
+            MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns
             _turretStatus = $"{_donorMap.Count}/{supported.Count} pairs";
+        }
+
+        // Portraits: once the mixer's prefix has transplanted and scaled the turret and the game's
+        // Init has run, photograph the first instance of each mixed type and swap the cached sprite.
+        void OnEntityInit(EntityController entity)
+        {
+            try
+            {
+                if (_mode.Value == Mode.Off || !_turretShuffle.Value) return;
+                if (_donorMap == null || !_donorMap.ContainsKey(entity.EntityId)) return;
+                MixedUnitPresentation.TryCapturePortrait(entity);
+            }
+            catch { }
+        }
+
+        [HarmonyPatch(typeof(EntityController), "Init")]
+        static class Patch_EntityController_Init
+        {
+            static void Postfix(EntityController __instance) => _instance?.OnEntityInit(__instance);
         }
 
         // Size proxy for the donor bands: horizontal footprint of the prefab's mesh bounds,
