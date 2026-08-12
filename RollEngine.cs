@@ -128,6 +128,17 @@ namespace RCM_Randomizer
             return map;
         }
 
+        // Power delta of receiving another unit's turret. What physically transfers is the fire
+        // point hierarchy (barrels multiply the receiver's damage throughput) and the projectile
+        // behaviour; damage numbers stay the receiver's own. Barrel ratio is the measurable part,
+        // per-donor overrides cover projectile quality the data can't see (e.g. CF2).
+        public static float WeaponTransferPowerDelta(string baseId, string donorId)
+        {
+            float baseBarrels = Math.Max(1, EntityBalancingStore.FirePointCount(baseId));
+            float donorBarrels = Math.Max(1, EntityBalancingStore.FirePointCount(donorId));
+            return 0.35f * (float)Math.Log(donorBarrels / baseBarrels);
+        }
+
         static List<List<string>> SizeBands(List<string> bases, Func<string, float> sizeOf, float maxSizeRatio)
         {
             if (sizeOf == null) return new List<List<string>> { bases };

@@ -39,6 +39,8 @@ namespace RCM_Randomizer
         ConfigEntry<float> _luckScale;
         ConfigEntry<bool> _turretShuffle;
         ConfigEntry<float> _turretMaxSizeRatio;
+        ConfigEntry<bool> _weaponPricing;
+        ConfigEntry<string> _weaponPriceOverrides;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
@@ -67,6 +69,10 @@ namespace RCM_Randomizer
                 "Seeded turret assignment for RCM_UnitsMixNMatch (if installed): every unit keeps the same donor turret for the whole run instead of rerolling per spawn.");
             _turretMaxSizeRatio = Config.Bind("TurretShuffle", "MaxSizeRatio", 2.5f,
                 new ConfigDescription("Units only swap turrets within a size band: biggest/smallest model footprint in a band stays under this ratio, so tiny bodies never carry huge guns. Higher = wilder combinations.", new AcceptableValueRange<float>(1f, 10f)));
+            _weaponPricing = Config.Bind("TurretShuffle", "WeaponPricing", true,
+                "Receiving another unit's weapon changes the card's cost: extra barrels are priced by the budget model, and per-donor overrides cover projectile quality the data can't see.");
+            _weaponPriceOverrides = Config.Bind("TurretShuffle", "WeaponPriceOverrides", "CF2=1.6",
+                "Extra cost multiplier for units RECEIVING that donor's weapon, comma-separated donorId=multiplier. Use for donors whose projectile is far stronger than their stats suggest.");
 
             RCMManager.ConnectMod("Randomizer").ContinueWith(t =>
             {
@@ -106,8 +112,9 @@ namespace RCM_Randomizer
                 }
 
                 RemoveRolls();
+                UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
                 ApplyRolls(seed, luck);
-                UpdateTurretShuffle(seed);
+                ApplyWeaponPricing();
                 _appliedSeed = seed;
                 _appliedConfigSignature = signature;
                 RefreshUi();
@@ -220,6 +227,55 @@ namespace RCM_Randomizer
             MixedUnitPresentation.ApplyMixedNames(_donorMap);
             MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns
             _turretStatus = $"{_donorMap.Count}/{supported.Count} pairs";
+        }
+
+        // A mixed unit's card pays for the weapon it received: barrel-ratio power delta priced
+        // like a roll, plus configured per-donor multipliers (CF2 etc.). One synthetic change id
+        // above the roll range holds all of them; the tooltip attributes them to "Weapon swap".
+        const int WeaponPricingChangeId = -49_999;
+
+        void ApplyWeaponPricing()
+        {
+            if (_donorMap == null || _donorMap.Count == 0 || !_weaponPricing.Value) return;
+
+            var overrides = ParseWeaponPriceOverrides();
+            var changes = new List<CardChangeScriptableObject>();
+            foreach (var pair in _donorMap)
+            {
+                float costMult;
+                try
+                {
+                    float delta = RollEngine.WeaponTransferPowerDelta(pair.Key, pair.Value);
+                    costMult = Mathf.Clamp(Mathf.Exp(delta / 1.15f), 0.6f, 2f);
+                }
+                catch { continue; }
+                if (overrides.TryGetValue(pair.Value, out float extra)) costMult *= extra;
+                if (Mathf.Abs(costMult - 1f) < 0.02f) continue;
+
+                changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Cost, costMult, pair.Key));
+                changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.ProductionDuration, Mathf.Sqrt(costMult), pair.Key));
+            }
+            if (changes.Count == 0) return;
+
+            SetLocaText(WeaponPricingLocaKey, "Weapon swap");
+            EntityBalancingStore.SetInGameCardChanges(WeaponPricingChangeId, changes,
+                new CardId(CardId.CardType.GlobalLocaId, WeaponPricingLocaKey));
+            _appliedChangeIds.Add(WeaponPricingChangeId);
+        }
+
+        const string WeaponPricingLocaKey = "rcmrandomizerweaponswap";
+
+        Dictionary<string, float> ParseWeaponPriceOverrides()
+        {
+            var result = new Dictionary<string, float>();
+            foreach (string entry in (_weaponPriceOverrides.Value ?? "").Split(','))
+            {
+                var parts = entry.Split('=');
+                if (parts.Length != 2) continue;
+                if (float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float mult))
+                    result[parts[0].Trim()] = mult;
+            }
+            return result;
         }
 
         // Portraits: once the mixer's prefix has transplanted and scaled the turret and the game's
