@@ -49,6 +49,7 @@ namespace RCM_Randomizer
         int? _appliedSeed;
         string _appliedConfigSignature;
         string _turretStatus = "off";
+        bool _loggedOffMode;
         Dictionary<string, string> _donorMap;
 
         static Randomizer _instance;
@@ -102,8 +103,16 @@ namespace RCM_Randomizer
                 if (_mode.Value == Mode.Off)
                 {
                     if (_appliedChangeIds.Count > 0) { RemoveRolls(); RefreshUi(); }
+                    // say so out loud: an Off mode persists in the config across restarts and
+                    // silently disables rolls, names, portraits and stable turrets at once
+                    if (!_loggedOffMode)
+                    {
+                        _loggedOffMode = true;
+                        RCMManager.Log("Randomizer: mode is Off, nothing applied (cycle mode in the F5 panel to enable)");
+                    }
                     return;
                 }
+                _loggedOffMode = false;
 
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
