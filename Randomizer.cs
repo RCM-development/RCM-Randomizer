@@ -41,6 +41,8 @@ namespace RCM_Randomizer
         ConfigEntry<float> _turretMaxSizeRatio;
         ConfigEntry<bool> _weaponPricing;
         ConfigEntry<string> _weaponPriceOverrides;
+        ConfigEntry<bool> _rollDrops;
+        ConfigEntry<bool> _promoteDropRarities;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
@@ -74,6 +76,10 @@ namespace RCM_Randomizer
                 "Receiving another unit's weapon changes the card's cost: extra barrels are priced by the budget model, and per-donor overrides cover projectile quality the data can't see.");
             _weaponPriceOverrides = Config.Bind("TurretShuffle", "WeaponPriceOverrides", "CF2=1.6",
                 "Extra cost multiplier for units RECEIVING that donor's weapon, comma-separated donorId=multiplier. Use for donors whose projectile is far stronger than their stats suggest.");
+            _rollDrops = Config.Bind("Drops", "RollStats", true,
+                "Consumable drops roll too: damage, radius, duration, heal and credit numbers vary within the rarity band. Their tooltips show the resulting values automatically.");
+            _promoteDropRarities = Config.Bind("Drops", "PromoteRarities", true,
+                "Reassign the strongest drops to Rare/UltraRare. All stock drops are Common, so the shop's Rare/UltraRare drop slots never appear; this turns them on and gives strong drops bigger roll bands.");
 
             RCMManager.ConnectMod("Randomizer").ContinueWith(t =>
             {
@@ -100,7 +106,7 @@ namespace RCM_Randomizer
 
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}";
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -114,6 +120,7 @@ namespace RCM_Randomizer
                 }
 
                 RemoveRolls();
+                if (_promoteDropRarities.Value) PromoteDropRarities();
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
@@ -141,7 +148,7 @@ namespace RCM_Randomizer
         void ApplyRolls(int seed, float luck)
         {
             EntityBalancingStore.Init();
-            var rolls = RollEngine.GenerateAll(seed, _intensity.Value, _maxStatsPerRoll.Value, luck);
+            var rolls = RollEngine.GenerateAll(seed, _intensity.Value, _maxStatsPerRoll.Value, luck, _rollDrops.Value);
             int skillCount = 0;
             foreach (var roll in rolls)
             {
@@ -182,7 +189,54 @@ namespace RCM_Randomizer
             _appliedSeed = null;
             _appliedConfigSignature = null;
             SkillInjector.ClearAssignments();
+            RestoreDropRarities();
             RefreshSpawnedEntities();
+        }
+
+        // ---- Drop rarity promotion -------------------------------------------------------------
+
+        // Every stock drop is Common, so the shop's Rare/UltraRare drop slots always come up empty
+        // and hide themselves. Promoting the strongest drops fills those slots (new shop content
+        // for free) and gives them bigger roll bands. Rarity lives in the balancing struct, not in
+        // the changeable-value system, so this mutates the (publicized) list and restores on turn-off.
+        static readonly Dictionary<string, Rarity> DropRarityPromotions = new Dictionary<string, Rarity>
+        {
+            ["DropXXLBomb"] = Rarity.Rare,
+            ["DropMeteorStrike"] = Rarity.Rare,
+            ["DropCrystalMeteor"] = Rarity.Rare,
+            ["DropInstaBuild"] = Rarity.Rare,
+            ["DropDuplication"] = Rarity.Rare,
+            ["DropFireMissiles"] = Rarity.Rare,
+            ["DropInvincibility"] = Rarity.UltraRare,
+            ["DropMonsterMode"] = Rarity.UltraRare,
+        };
+
+        readonly Dictionary<string, Rarity> _originalDropRarities = new Dictionary<string, Rarity>();
+
+        void PromoteDropRarities()
+        {
+            EntityBalancingStore.Init();
+            foreach (var promotion in DropRarityPromotions)
+            {
+                if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(promotion.Key, out int index)) continue;
+                var parameters = EntityBalancingStore.EntityBalancingParametersList[index];
+                if (parameters.rarity == promotion.Value) continue;
+                if (!_originalDropRarities.ContainsKey(promotion.Key)) _originalDropRarities[promotion.Key] = parameters.rarity;
+                parameters.rarity = promotion.Value;
+                EntityBalancingStore.EntityBalancingParametersList[index] = parameters;
+            }
+        }
+
+        void RestoreDropRarities()
+        {
+            foreach (var original in _originalDropRarities)
+            {
+                if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(original.Key, out int index)) continue;
+                var parameters = EntityBalancingStore.EntityBalancingParametersList[index];
+                parameters.rarity = original.Value;
+                EntityBalancingStore.EntityBalancingParametersList[index] = parameters;
+            }
+            _originalDropRarities.Clear();
         }
 
         // ---- Luck ----------------------------------------------------------------------------

@@ -95,10 +95,10 @@ namespace RCM_Randomizer
         // luck (0 = neutral): harder difficulty rolls more favorably, Borderlands-style.
         // It shifts each roll toward the beneficial direction AND discounts the compensation,
         // so on high ascension/heat the rolled cards are genuinely better value than baseline.
-        public static List<EntityRoll> GenerateAll(int seed, float intensity, int maxStatsPerRoll, float luck = 0f)
+        public static List<EntityRoll> GenerateAll(int seed, float intensity, int maxStatsPerRoll, float luck = 0f, bool includeDrops = false)
         {
             var rolls = new List<EntityRoll>();
-            var universe = RollableEntityIds();
+            var universe = RollableEntityIds(includeDrops);
             for (int i = 0; i < universe.Count; i++)
             {
                 var roll = GenerateForEntity(universe[i], seed, intensity, maxStatsPerRoll, UniqueIdBase - i, luck);
@@ -179,10 +179,23 @@ namespace RCM_Randomizer
         }
 
         // Everything that can end up in the player's deck: blueprint buildings plus the units
-        // their factories produce. Sorted + deduped so ids and rolls stay deterministic.
-        static List<string> RollableEntityIds()
+        // their factories produce, optionally plus consumable drops (they live in the same
+        // balancing table with role Drop, and the card-change layer covers them; their cost and
+        // production duration are 0 so compensation naturally no-ops — one-shot consumables get
+        // pure variance instead, biased by luck like everything else). Sorted + deduped so ids
+        // and rolls stay deterministic.
+        static List<string> RollableEntityIds(bool includeDrops)
         {
             var set = new HashSet<string>(EntityBalancingStore.AllEntityIdsAllowedAsBlueprints(withProducts: true));
+            if (includeDrops)
+            {
+                try
+                {
+                    foreach (var id in EntityBalancingStore.AllEntityIdsHaving(UnitRole.Drop, null, demoBlueprintsOnly: false, EntityBalancingStore.SpecialistFilter.All, inactive: false))
+                        set.Add(id);
+                }
+                catch { }
+            }
             var list = set.Where(id => !EntityBalancingStore.HasRole(id, UnitRole.Tree)).ToList();
             list.Sort(StringComparer.Ordinal);
             return list;
