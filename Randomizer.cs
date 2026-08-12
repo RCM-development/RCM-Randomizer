@@ -37,7 +37,9 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _luckEnabled;
         ConfigEntry<float> _luckScale;
         ConfigEntry<bool> _turretShuffle;
+        ConfigEntry<float> _turretMaxSizeRatio;
 
+        readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
         int? _appliedSeed;
         string _appliedConfigSignature;
@@ -58,6 +60,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Multiplier on the luck computed from difficulty/ascension/heat.", new AcceptableValueRange<float>(0f, 3f)));
             _turretShuffle = Config.Bind("TurretShuffle", "Enabled", true,
                 "Seeded turret assignment for RCM_UnitsMixNMatch (if installed): every unit keeps the same donor turret for the whole run instead of rerolling per spawn.");
+            _turretMaxSizeRatio = Config.Bind("TurretShuffle", "MaxSizeRatio", 2.5f,
+                new ConfigDescription("Units only swap turrets within a size band: biggest/smallest model footprint in a band stays under this ratio, so tiny bodies never carry huge guns. Higher = wilder combinations.", new AcceptableValueRange<float>(1f, 10f)));
 
             RCMManager.ConnectMod("Randomizer").ContinueWith(t =>
             {
@@ -190,10 +194,49 @@ namespace RCM_Randomizer
                 return;
             }
 
-            _donorMap = RollEngine.GenerateDonorMap(seed, supported);
+            _donorMap = RollEngine.GenerateDonorMap(seed, supported, ModelFootprint, _turretMaxSizeRatio.Value);
             var map = _donorMap;
             selectorField.SetValue(null, new Func<string, string>(id => map.TryGetValue(id, out var donor) ? donor : null));
-            _turretStatus = $"{_donorMap.Count} stable pairs";
+            _turretStatus = $"{_donorMap.Count}/{supported.Count} size-matched pairs";
+        }
+
+        // Size proxy for the donor bands: horizontal footprint of the prefab's mesh bounds,
+        // read off the asset without instantiating (sharedMesh + hierarchy transforms; the
+        // AABB ignores rotation, which is fine for a proxy). Falls back to the card model
+        // scaling factor, which the game uses to normalize model size on card previews.
+        float ModelFootprint(string entityId)
+        {
+            if (_sizeCache.TryGetValue(entityId, out float cached)) return cached;
+            float size = 1f;
+            try
+            {
+                var prefab = Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation(entityId));
+                if (prefab != null)
+                {
+                    bool any = false;
+                    Bounds total = default;
+                    foreach (var filter in prefab.GetComponentsInChildren<MeshFilter>(true))
+                    {
+                        var mesh = filter.sharedMesh;
+                        if (mesh == null) continue;
+                        var scale = filter.transform.lossyScale;
+                        var center = filter.transform.TransformPoint(mesh.bounds.center);
+                        var extents = Vector3.Scale(mesh.bounds.extents, scale);
+                        var bounds = new Bounds(center, extents * 2f);
+                        if (!any) { total = bounds; any = true; }
+                        else total.Encapsulate(bounds);
+                    }
+                    if (any) size = Mathf.Max(total.size.x, total.size.z);
+                }
+                if (size <= 0.01f)
+                {
+                    float cardScale = EntityBalancingStore.CardModelScalingFactor(entityId);
+                    if (cardScale > 0.001f) size = 1f / cardScale;
+                }
+            }
+            catch { size = 1f; }
+            _sizeCache[entityId] = size;
+            return size;
         }
 
         // ---- Seeds ---------------------------------------------------------------------------

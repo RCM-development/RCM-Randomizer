@@ -97,26 +97,62 @@ namespace RCM_Randomizer
 
         // Stable turret-donor assignment for UnitsMixNMatch: a seeded permutation of the compat
         // list with fixed points removed, so every entity keeps the same donor all run and no
-        // donor is assigned twice.
-        public static Dictionary<string, string> GenerateDonorMap(int seed, IEnumerable<string> supportedEntities)
+        // donor is assigned twice. With a size function, entities are first grouped into size
+        // bands (largest/smallest within maxSizeRatio) and only swap inside their band, so a
+        // tiny body never carries a huge gun. Entities left alone in their band keep their
+        // stock turret (no map entry).
+        public static Dictionary<string, string> GenerateDonorMap(int seed, IEnumerable<string> supportedEntities,
+                                                                  Func<string, float> sizeOf = null, float maxSizeRatio = 2.5f)
         {
             var bases = supportedEntities.Distinct().ToList();
             bases.Sort(StringComparer.Ordinal);
             var map = new Dictionary<string, string>();
             if (bases.Count < 2) return map;
 
-            var donors = new List<string>(bases);
-            Shuffle(donors, new Random(seed ^ 0x7EA5EED));
-            for (int i = 0; i < bases.Count; i++)
+            var rand = new Random(seed ^ 0x7EA5EED);
+            foreach (var band in SizeBands(bases, sizeOf, maxSizeRatio))
             {
-                if (donors[i] == bases[i])
+                if (band.Count < 2) continue;
+                var donors = new List<string>(band);
+                Shuffle(donors, rand);
+                for (int i = 0; i < band.Count; i++)
                 {
-                    int j = (i + 1) % bases.Count;
-                    (donors[i], donors[j]) = (donors[j], donors[i]);
+                    if (donors[i] == band[i])
+                    {
+                        int j = (i + 1) % band.Count;
+                        (donors[i], donors[j]) = (donors[j], donors[i]);
+                    }
                 }
+                for (int i = 0; i < band.Count; i++) map[band[i]] = donors[i];
             }
-            for (int i = 0; i < bases.Count; i++) map[bases[i]] = donors[i];
             return map;
+        }
+
+        static List<List<string>> SizeBands(List<string> bases, Func<string, float> sizeOf, float maxSizeRatio)
+        {
+            if (sizeOf == null) return new List<List<string>> { bases };
+
+            var sized = bases
+                .Select(id => (id, size: Math.Max(0.01f, SafeSize(sizeOf, id))))
+                .OrderBy(t => t.size).ThenBy(t => t.id, StringComparer.Ordinal)
+                .ToList();
+
+            var bands = new List<List<string>>();
+            int start = 0;
+            while (start < sized.Count)
+            {
+                float anchor = sized[start].size;
+                int end = start;
+                while (end < sized.Count && sized[end].size <= anchor * maxSizeRatio) end++;
+                bands.Add(sized.Skip(start).Take(end - start).Select(t => t.id).ToList());
+                start = end;
+            }
+            return bands;
+        }
+
+        static float SafeSize(Func<string, float> sizeOf, string id)
+        {
+            try { return sizeOf(id); } catch { return 1f; }
         }
 
         // Everything that can end up in the player's deck: blueprint buildings plus the units
