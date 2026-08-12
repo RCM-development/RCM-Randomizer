@@ -92,6 +92,18 @@ namespace RCM_Randomizer
             // SpawnTtl and ManaRechargePerSecond (global/edge semantics)
         };
 
+        // Read-only view for other modules (generated upgrades price against the same weights).
+        public static IReadOnlyList<StatSpec> WeightCatalog => Catalog;
+
+        public static float WeightOf(EntityBalancingStore.ChangeableValue value)
+        {
+            foreach (var spec in Catalog)
+                if (spec.Value == value) return spec.Weight;
+            if (value == EntityBalancingStore.ChangeableValue.Cost) return CostSpec.Weight;
+            if (value == EntityBalancingStore.ChangeableValue.ProductionDuration) return ProdSpec.Weight;
+            return 0.2f;
+        }
+
         static readonly StatSpec CostSpec = new StatSpec(EntityBalancingStore.ChangeableValue.Cost, 1.00f, "COST");
         static readonly StatSpec ProdSpec = new StatSpec(EntityBalancingStore.ChangeableValue.ProductionDuration, 0.30f, "BUILDTIME");
 

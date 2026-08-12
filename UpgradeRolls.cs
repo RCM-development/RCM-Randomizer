@@ -41,6 +41,7 @@ namespace RCM_Randomizer
 
         static bool RollOne(string upgradeId, int seed, float intensity, float luck)
         {
+            if (GeneratedUpgrades.IsGenerated(upgradeId)) return false; // authored numbers, don't double-roll
             var upgrade = UpgradeBalancingStore.ScriptableObject(upgradeId);
             if (upgrade == null || upgrade.cardChanges == null || upgrade.cardChanges.Count == 0) return false;
 

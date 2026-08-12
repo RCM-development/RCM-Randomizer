@@ -50,6 +50,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _enemyRolls;
         ConfigEntry<int> _capturedTechCount;
         ConfigEntry<bool> _rollHacks;
+        ConfigEntry<int> _generatedUpgradeCount;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
@@ -96,6 +97,8 @@ namespace RCM_Randomizer
                 "Upgrade cards roll too: effect magnitudes scale within the rarity band, and the numbers in the card text are rewritten to match.");
             _rollExcludeIds = Config.Bind("General", "RollExcludeIds", "DropFireMissiles",
                 "Comma-separated entityIds exempt from stat rolls. DropFireMissiles is excluded by default while we verify a reported impact-offset issue.");
+            _generatedUpgradeCount = Config.Bind("Upgrades", "GeneratedCount", 10,
+                new ConfigDescription("Seed-generated upgrade cards added to the pools (trade-offs, role-themed, pure buffs), priced by the budget engine. 0 disables.", new AcceptableValueRange<int>(0, 30)));
             _rollHacks = Config.Bind("Hacks", "RollEffects", true,
                 "Hacks (relics) roll too: their stat-channel effect magnitudes scale within the rarity band and the numbers in the card text follow. Behaviour effects (proc chances etc.) stay stock.");
             _enemyRolls = Config.Bind("Enemies", "RollStats", true,
@@ -141,7 +144,7 @@ namespace RCM_Randomizer
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
                 int escalation = CurrentEscalation();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}";
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -152,6 +155,7 @@ namespace RCM_Randomizer
                     SkillInjector.ReapplyDescriptions();
                     UpgradeRolls.ReapplyDescriptions();
                     RelicRolls.ReapplyDescriptions();
+                    GeneratedUpgrades.ReapplyLoca();
                     ApplyDropDescSuffixes();
                     if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
                     return;
@@ -164,6 +168,7 @@ namespace RCM_Randomizer
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
                 if (_rollUpgrades.Value) UpgradeRolls.Apply(seed, _intensity.Value, luck);
+                if (_generatedUpgradeCount.Value > 0) GeneratedUpgrades.Apply(seed, luck, _generatedUpgradeCount.Value); // AFTER UpgradeRolls: authored numbers must not double-roll
                 if (_rollHacks.Value) RelicRolls.Apply(seed, _intensity.Value, luck);
                 if (_enemyRolls.Value)
                     _appliedChangeIds.AddRange(EnemyRolls.Apply(seed, escalation, _intensity.Value,
@@ -274,6 +279,7 @@ namespace RCM_Randomizer
             RestoreCapturedTech();
             UpgradeRolls.Restore();
             RelicRolls.Restore();
+            GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
             if (hadChanges)
             {
                 EntityBalancingStore.InvalidateCache();
