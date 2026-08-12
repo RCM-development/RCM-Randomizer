@@ -87,9 +87,12 @@ namespace RCM_Randomizer
             new StatSpec(EntityBalancingStore.ChangeableValue.SkillRange,       0.08f, "SKILLRNG", 0.6f),
             new StatSpec(EntityBalancingStore.ChangeableValue.MaxCapacity,      0.15f, "CAP"),
             new StatSpec(EntityBalancingStore.ChangeableValue.Duration1,        0.08f, "DUR"),
+            // MaxArmor doubles as HARVEST RATE on harvesters (per the game's own mod README);
+            // Applies() below restricts this spec to Harvester-role entities, where it is
+            // straightforwardly eco power.
+            new StatSpec(EntityBalancingStore.ChangeableValue.MaxArmor,          0.40f, "HARVEST", 0.6f),
             // deliberately not rolled: Cost + ProductionDuration (compensation currency),
-            // MaxArmor (doubles as harvest rate per the game's own mod README), MaxRank,
-            // SpawnTtl and ManaRechargePerSecond (global/edge semantics)
+            // MaxRank, SpawnTtl and ManaRechargePerSecond (global/edge semantics)
         };
 
         // Read-only view for other modules (generated upgrades price against the same weights).
@@ -229,6 +232,18 @@ namespace RCM_Randomizer
         static List<string> RollableEntityIds(bool includeDrops)
         {
             var set = new HashSet<string>(EntityBalancingStore.AllEntityIdsAllowedAsBlueprints(withProducts: true));
+            // run-start choices roll too: engineers and economy refineries (+ their harvesters)
+            try
+            {
+                foreach (var id in EngineerBalancingStore.EngineerIds(inactive: false)) set.Add(id);
+                foreach (var id in EconomyBalancingStore.RefineryIds(inactive: false))
+                {
+                    set.Add(id);
+                    var product = EntityBalancingStore.ProductEntityId(id);
+                    if (product != null) set.Add(product);
+                }
+            }
+            catch { }
             if (includeDrops)
             {
                 try
@@ -342,6 +357,9 @@ namespace RCM_Randomizer
         {
             try
             {
+                // MaxArmor is only rolled where it means harvest rate
+                if (spec.Value == EntityBalancingStore.ChangeableValue.MaxArmor
+                    && !EntityBalancingStore.HasRole(entityId, UnitRole.Harvester)) return false;
                 if (!EntityBalancingStore.IsValueHigherThanZero(entityId, spec.Value, useOriginalValue: true)) return false;
                 if (spec.RequiresPrimaryDamage &&
                     !EntityBalancingStore.IsValueHigherThanZero(entityId, EntityBalancingStore.ChangeableValue.Damage1, useOriginalValue: true)) return false;

@@ -51,6 +51,7 @@ namespace RCM_Randomizer
         ConfigEntry<int> _capturedTechCount;
         ConfigEntry<bool> _rollHacks;
         ConfigEntry<int> _generatedUpgradeCount;
+        ConfigEntry<bool> _engineerTrait;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
@@ -101,6 +102,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Seed-generated upgrade cards added to the pools (trade-offs, role-themed, pure buffs), priced by the budget engine. 0 disables.", new AcceptableValueRange<int>(0, 30)));
             _rollHacks = Config.Bind("Hacks", "RollEffects", true,
                 "Hacks (relics) roll too: their stat-channel effect magnitudes scale within the rarity band and the numbers in the card text follow. Behaviour effects (proc chances etc.) stay stock.");
+            _engineerTrait = Config.Bind("Engineers", "SeededTrait", true,
+                "Each seed gives the chosen engineer one global run trait (e.g. 'turrets +7 percent damage'), attributed in stat tooltips.");
             _enemyRolls = Config.Bind("Enemies", "RollStats", true,
                 "Enemy-only units get their own seeded variance that escalates every level of the run: bigger bands, stronger upward bias. Every run's opposition drifts differently.");
             _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
@@ -144,7 +147,7 @@ namespace RCM_Randomizer
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
                 int escalation = CurrentEscalation();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}";
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -174,6 +177,11 @@ namespace RCM_Randomizer
                     _appliedChangeIds.AddRange(EnemyRolls.Apply(seed, escalation, _intensity.Value,
                         (id, changes, source) => { RegisterChangesQuietly(id, changes, source); return true; },
                         SetLocaText));
+                if (_engineerTrait.Value)
+                {
+                    int? traitId = EngineerTraits.Apply(seed, luck, RegisterChangesQuietly, SetLocaText);
+                    if (traitId.HasValue) _appliedChangeIds.Add(traitId.Value);
+                }
                 // ONE cache refresh for the whole batch: registering each change individually
                 // rebuilt every cached card ~270 times in a single frame, a hard stutter at
                 // run start in PerRun mode (PerSave hid it in the menu)
@@ -438,6 +446,12 @@ namespace RCM_Randomizer
             }
             _capturedTechOriginals.Clear();
             _capturedTechIds.Clear();
+        }
+
+        static string CurrentEngineerId()
+        {
+            try { return MetaGame.Instance != null ? (MetaGame.Instance.ChosenEngineerId ?? "") : ""; }
+            catch { return ""; }
         }
 
         // ---- Luck ----------------------------------------------------------------------------
