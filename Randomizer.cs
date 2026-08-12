@@ -55,6 +55,7 @@ namespace RCM_Randomizer
         {
             _instance = this;
             new Harmony(IDENTIFIER).PatchAll();
+            RollEngine.SkillOptions = SkillInjector.Options;
             _mode = Config.Bind("General", "Mode", Mode.PerSave,
                 "Off = stock game. PerSave = rolled once per profile (reroll via UI). PerRun = fresh rolls from each run's Run ID.");
             _intensity = Config.Bind("General", "Intensity", 1.0f,
@@ -107,6 +108,7 @@ namespace RCM_Randomizer
                     // the game reloads its localization dictionaries during startup/language
                     // switches, wiping injected entries: re-apply them, it's idempotent
                     ReapplyLocaInjections();
+                    SkillInjector.ReapplyDescriptions();
                     if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
                     return;
                 }
@@ -140,11 +142,27 @@ namespace RCM_Randomizer
         {
             EntityBalancingStore.Init();
             var rolls = RollEngine.GenerateAll(seed, _intensity.Value, _maxStatsPerRoll.Value, luck);
+            int skillCount = 0;
             foreach (var roll in rolls)
             {
                 var changes = new List<CardChangeScriptableObject>();
                 foreach (var stat in roll.Stats)
                     changes.Add(MultiplyChange(stat.Spec.Value, stat.Multiplier, roll.EntityId));
+
+                if (roll.SkillId != null)
+                {
+                    var spec = SkillInjector.Get(roll.SkillId);
+                    if (spec != null)
+                    {
+                        skillCount++;
+                        SkillInjector.Assign(roll.EntityId, roll.SkillId);
+                        // numbers via the card-change layer so the card shows them; a unit
+                        // without a mana pool gets one, or the button stays greyed forever
+                        changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillManaCost, spec.ManaCost, roll.EntityId));
+                        if (EntityBalancingStore.MaxMana(roll.EntityId, returnOriginalValueFromBalancingFile: true) <= 0)
+                            changes.Add(AddChange(EntityBalancingStore.ChangeableValue.MaxMana, 60f, roll.EntityId));
+                    }
+                }
 
                 string locaKey = LocaKeyFor(roll.UniqueChangeId);
                 SetLocaText(locaKey, roll.Label);
@@ -152,7 +170,7 @@ namespace RCM_Randomizer
                 _appliedChangeIds.Add(roll.UniqueChangeId);
             }
             RefreshSpawnedEntities();
-            RCMManager.Log($"Randomizer: {rolls.Count} cards rolled (seed {seed}, {_mode.Value}, luck {luck:F2})");
+            RCMManager.Log($"Randomizer: {rolls.Count} cards rolled, {skillCount} with skills (seed {seed}, {_mode.Value}, luck {luck:F2})");
         }
 
         void RemoveRolls()
@@ -161,6 +179,7 @@ namespace RCM_Randomizer
             _appliedChangeIds.Clear();
             _appliedSeed = null;
             _appliedConfigSignature = null;
+            SkillInjector.ClearAssignments();
             RefreshSpawnedEntities();
         }
 
@@ -378,11 +397,17 @@ namespace RCM_Randomizer
         // ---- Card-change plumbing ------------------------------------------------------------
 
         static CardChangeScriptableObject MultiplyChange(EntityBalancingStore.ChangeableValue value, float factor, string entityId)
+            => MakeChange(value, CardChangeScriptableObject.Operation.Multiply, factor, entityId);
+
+        static CardChangeScriptableObject AddChange(EntityBalancingStore.ChangeableValue value, float amount, string entityId)
+            => MakeChange(value, CardChangeScriptableObject.Operation.Add, amount, entityId);
+
+        static CardChangeScriptableObject MakeChange(EntityBalancingStore.ChangeableValue valueToChange, CardChangeScriptableObject.Operation operation, float value, string entityId)
         {
             var change = ScriptableObject.CreateInstance<CardChangeScriptableObject>();
-            change.valueToChange = value;
-            change.operation = CardChangeScriptableObject.Operation.Multiply;
-            change.value = factor;
+            change.valueToChange = valueToChange;
+            change.operation = operation;
+            change.value = value;
             change.side = CardChangeScriptableObject.Side.Irrelevant; // default Side.False would skip AI-allowed entities
             change.onlyForTheseEntityIds = new List<string> { entityId };
             change.entityIdsNotAllowed = new List<string>();

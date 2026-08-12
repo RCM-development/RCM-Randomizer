@@ -40,7 +40,19 @@ namespace RCM_Randomizer
             public List<RolledStat> Stats = new List<RolledStat>();
             public string Label;       // shown in the card tooltip as the source of the change
             public float PowerDelta;   // sum of weight * ln(mult) over the non-compensation stats
+            public string SkillId;     // rolled custom skill (rare), null for most cards
+            public string SkillName;
         }
+
+        public struct SkillOption
+        {
+            public string Id;
+            public string ShortName;
+            public float Power;
+        }
+
+        // Custom skills available as rare rolls; the plugin fills this from SkillInjector.Catalog.
+        public static IReadOnlyList<SkillOption> SkillOptions = new List<SkillOption>();
 
         // ---- Catalog: every rollable ChangeableValue with its power weight -------------------
         // Weights start from a log-log fit of cost vs stats on the game's own balancing table
@@ -205,9 +217,50 @@ namespace RCM_Randomizer
             CapDegenerateCombos(roll);
 
             roll.PowerDelta = roll.Stats.Sum(s => s.Spec.Weight * (float)Math.Log(s.Multiplier));
+
+            // Rare skill roll: a custom active skill on top of the stat roll, likelier on rarer
+            // cards and at higher luck, priced into the budget like any other buff.
+            if (SkillOptions.Count > 0 && IsSkillEligible(entityId))
+            {
+                float chance = SkillChance(entityId) * (1f + 0.4f * luck);
+                if (rand.NextDouble() < Math.Min(0.45f, chance))
+                {
+                    var option = SkillOptions[rand.Next(SkillOptions.Count)];
+                    roll.SkillId = option.Id;
+                    roll.SkillName = option.ShortName;
+                    roll.PowerDelta += option.Power;
+                }
+            }
+
             AddCompensation(roll, entityId, Math.Min(0.5f, 0.15f * luck));
             roll.Label = BuildLabel(roll);
             return roll;
+        }
+
+        // Mobile combat units without a skill of their own; factories route their button to
+        // production and can never show a skill (ShowMultipleSkillsWidget routes by IsFactory).
+        static bool IsSkillEligible(string entityId)
+        {
+            try
+            {
+                return EntityBalancingStore.HasRole(entityId, UnitRole.Unit)
+                    && !EntityBalancingStore.HasRole(entityId, UnitRole.Building)
+                    && EntityBalancingStore.SkillType(entityId) == SkillType.None
+                    && EntityBalancingStore.ProductEntityId(entityId) == null;
+            }
+            catch { return false; }
+        }
+
+        static float SkillChance(string entityId)
+        {
+            string cardId = EntityBalancingStore.FactoryEntityId(entityId) ?? entityId;
+            switch (EntityBalancingStore.Rarity(cardId))
+            {
+                case Rarity.Common: return 0.06f;
+                case Rarity.Rare: return 0.12f;
+                case Rarity.UltraRare: return 0.25f;
+                default: return 0.06f;
+            }
         }
 
         // ---- Internals -----------------------------------------------------------------------
@@ -309,6 +362,7 @@ namespace RCM_Randomizer
                 return s.Spec.ShortName + (pct >= 0 ? " +" : " ") + pct.ToString(CultureInfo.InvariantCulture) + "%";
             }
             string text = flavor + " | " + string.Join(" ", buffs.Select(Fmt));
+            if (roll.SkillName != null) text += " | SKILL " + roll.SkillName;
             if (comp.Count > 0) text += " | " + string.Join(" ", comp.Select(Fmt));
             return text;
         }
