@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -173,10 +174,15 @@ namespace RCM_Randomizer
         void UpdateTurretShuffle(int seed)
         {
             var mixerType = AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
-            if (mixerType == null) { _turretStatus = "mix&match not installed"; return; }
+            if (mixerType == null) { _turretStatus = "no mix&match"; return; }
 
             var selectorField = mixerType.GetField("DonorSelector", BindingFlags.Public | BindingFlags.Static);
-            if (selectorField == null) { _turretStatus = "mix&match too old (no DonorSelector hook)"; return; }
+            if (selectorField == null)
+            {
+                _turretStatus = "no donor hook";
+                RCMManager.Log("Randomizer: mix&match has no DonorSelector hook, build the donor-hook branch for seeded turrets");
+                return;
+            }
 
             if (!_turretShuffle.Value || _mode.Value == Mode.Off)
             {
@@ -190,14 +196,14 @@ namespace RCM_Randomizer
             if (supported == null || supported.Count < 2)
             {
                 selectorField.SetValue(null, null);
-                _turretStatus = "compat list empty";
+                _turretStatus = "no compat list";
                 return;
             }
 
             _donorMap = RollEngine.GenerateDonorMap(seed, supported, ModelFootprint, _turretMaxSizeRatio.Value);
             var map = _donorMap;
             selectorField.SetValue(null, new Func<string, string>(id => map.TryGetValue(id, out var donor) ? donor : null));
-            _turretStatus = $"{_donorMap.Count}/{supported.Count} size-matched pairs";
+            _turretStatus = $"{_donorMap.Count}/{supported.Count} pairs";
         }
 
         // Size proxy for the donor bands: horizontal footprint of the prefab's mesh bounds,
@@ -316,26 +322,31 @@ namespace RCM_Randomizer
 
         // ---- F5 panel ------------------------------------------------------------------------
 
+        // Panel rows are fixed-height prefabs: a label that wraps draws over the row below it,
+        // so every line has to stay short (~22 chars) instead of one long status string.
         void BuildUi()
         {
             if (mod == null) return;
             mod.ClearFields();
-            mod.CreateLabelField(StatusText());
-            mod.CreateButtonField("Cycle mode (Off / PerSave / PerRun)", () =>
+            foreach (string line in StatusLines()) mod.CreateLabelField(line);
+            mod.CreateButtonField("Cycle mode", () =>
             {
                 _mode.Value = (Mode)(((int)_mode.Value + 1) % 3);
                 EnsureRollsCurrent();
                 RefreshUi();
             });
-            mod.CreateButtonField("Reroll profile seed", RerollProfileSeed);
+            mod.CreateButtonField("Reroll seed", RerollProfileSeed);
         }
 
         void RefreshUi() => BuildUi();
 
-        string StatusText()
+        IEnumerable<string> StatusLines()
         {
-            string seedText = _appliedSeed.HasValue ? _appliedSeed.Value.ToString() : "-";
-            return $"Mode: {_mode.Value} | seed {seedText} | {_appliedChangeIds.Count} cards | luck {CurrentLuck():F2} | turrets: {_turretStatus}";
+            yield return "Mode: " + _mode.Value;
+            if (_mode.Value == Mode.Off) yield break;
+            yield return "Seed " + (_appliedSeed.HasValue ? _appliedSeed.Value.ToString(CultureInfo.InvariantCulture) : "-");
+            yield return _appliedChangeIds.Count + " cards, luck " + CurrentLuck().ToString("F1", CultureInfo.InvariantCulture);
+            yield return "Turrets " + _turretStatus;
         }
     }
 }

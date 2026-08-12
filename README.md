@@ -29,7 +29,6 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 
 Framework implemented (M1), in-game testing ongoing. Roadmap is in the analysis doc (§5).
 
-## Requirements
+## Install
 
-- [BepInEx 5](https://github.com/BepInEx/BepInEx/releases) installed into the game folder
-- [RCM-Manager](https://github.com/RCM-development/RCM-Manager) (TestMod.dll + rcmoverlay in `BepInEx\plugins`)
+See [INSTALL.md](INSTALL.md). Short version: BepInEx 5 in the game folder, then `TestMod.dll` + `rcmoverlay` (from [RCM-Manager](https://github.com/RCM-development/RCM-Manager)) and `RCM_Randomizer.dll` in `BepInEx\plugins`. Turret combinations additionally need RCM-UnitsMixNMatch built from its `donor-hook` branch.
