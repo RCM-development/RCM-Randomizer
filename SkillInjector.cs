@@ -288,7 +288,11 @@ namespace RCM_Randomizer
         {
             static void Prefix(EntityController __instance)
             {
-                try { SkillInjector.TryInject(__instance); }
+                try
+                {
+                    using (HookProfiler.Measure("skillInject", __instance.entityId))
+                        SkillInjector.TryInject(__instance);
+                }
                 catch (Exception e) { RCMManager.Log("Randomizer: skill injection failed (" + e.Message + ")"); }
             }
         }

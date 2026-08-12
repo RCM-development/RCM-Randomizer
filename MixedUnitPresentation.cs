@@ -103,7 +103,10 @@ namespace RCM_Randomizer
                     continue;
                 }
 
-                GameObject booth = BuildBooth(request.Value.gameObject, out RenderTexture rt);
+                GameObject booth;
+                RenderTexture rt;
+                using (HookProfiler.Measure("portraitBooth", request.Key))
+                    booth = BuildBooth(request.Value.gameObject, out rt);
                 if (booth == null) { PortraitDone.Remove(request.Key); continue; }
 
                 yield return new WaitForEndOfFrame(); // URP renders the enabled camera this frame

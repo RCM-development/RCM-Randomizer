@@ -480,7 +480,8 @@ namespace RCM_Randomizer
             {
                 if (_mode.Value == Mode.Off || !_turretShuffle.Value) return;
                 if (_donorMap == null || !_donorMap.ContainsKey(entity.EntityId)) return;
-                MixedUnitPresentation.RequestPortrait(entity);
+                using (HookProfiler.Measure("portraitRequest", entity.EntityId))
+                    MixedUnitPresentation.RequestPortrait(entity);
             }
             catch (Exception e)
             {
