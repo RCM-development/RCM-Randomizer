@@ -145,8 +145,7 @@ namespace RCM_Randomizer
                     .ToArray();
                 if (renderers.Length == 0) throw new Exception("no renderers");
 
-                Bounds bounds = renderers[0].bounds;
-                for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
+                Bounds bounds = FramingBounds(renderers);
 
                 var camObj = new GameObject("RCM_PortraitCam");
                 camObj.transform.SetParent(booth.transform);
@@ -174,6 +173,25 @@ namespace RCM_Randomizer
                 if (booth != null) UnityEngine.Object.Destroy(booth);
                 return null;
             }
+        }
+
+        // Beam and effect meshes are stretched towards their target and report enormous world
+        // bounds; framing on those zooms the camera so far out that the unit is a few pixels.
+        // Drop the outliers and frame on what is left.
+        static Bounds FramingBounds(Renderer[] renderers)
+        {
+            var sizes = renderers.Select(r => r.bounds.size.magnitude).OrderBy(v => v).ToList();
+            float limit = Mathf.Max(0.001f, sizes[sizes.Count / 2] * 4f);
+
+            bool any = false;
+            Bounds total = default;
+            foreach (var r in renderers)
+            {
+                if (r.bounds.size.magnitude > limit) continue;
+                if (!any) { total = r.bounds; any = true; }
+                else total.Encapsulate(r.bounds);
+            }
+            return any ? total : renderers[0].bounds;
         }
 
         // Leave only meshes behind: no scripts that would register the copy with the game, no
