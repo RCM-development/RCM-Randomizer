@@ -54,6 +54,9 @@ namespace RCM_Randomizer
         // Custom skills available as rare rolls; the plugin fills this from SkillInjector.Catalog.
         public static IReadOnlyList<SkillOption> SkillOptions = new List<SkillOption>();
 
+        // Chance factor for swapping out a skill the unit already owns (0 = never).
+        public static float ReplaceExistingSkillChance = 0.35f;
+
         // ---- Catalog: every rollable ChangeableValue with its power weight -------------------
         // Weights start from a log-log fit of cost vs stats on the game's own balancing table
         // (see docs/balance-analysis.md §3) plus per-hit reasoning for shield/armor.
@@ -232,10 +235,12 @@ namespace RCM_Randomizer
             roll.PowerDelta = roll.Stats.Sum(s => s.Spec.Weight * (float)Math.Log(s.Multiplier));
 
             // Rare skill roll: a custom active skill on top of the stat roll, likelier on rarer
-            // cards and at higher luck, priced into the budget like any other buff.
+            // cards and at higher luck, priced into the budget like any other buff. Units that
+            // already own a skill can have it swapped for a rolled one, at a reduced chance.
             if (SkillOptions.Count > 0 && IsSkillEligible(entityId))
             {
                 float chance = SkillChance(entityId) * (1f + 0.4f * luck);
+                if (HasOwnSkill != null && HasOwnSkill(entityId)) chance *= ReplaceExistingSkillChance;
                 if (rand.NextDouble() < Math.Min(0.45f, chance))
                 {
                     var option = SkillOptions[rand.Next(SkillOptions.Count)];
@@ -256,16 +261,16 @@ namespace RCM_Randomizer
         // EntityController.hasActiveSkill; the plugin supplies this since it can load prefabs.
         public static Func<string, bool> HasOwnSkill;
 
-        // Mobile combat units without a skill of their own; factories route their button to
-        // production and can never show a skill (ShowMultipleSkillsWidget routes by IsFactory).
+        // Mobile combat units; factories route their button to production and can never show a
+        // skill (ShowMultipleSkillsWidget routes by IsFactory). Units owning a skill stay
+        // eligible; the roll above just applies the reduced replace chance for them.
         static bool IsSkillEligible(string entityId)
         {
             try
             {
                 if (!EntityBalancingStore.HasRole(entityId, UnitRole.Unit)) return false;
                 if (EntityBalancingStore.HasRole(entityId, UnitRole.Building)) return false;
-                if (EntityBalancingStore.ProductEntityId(entityId) != null) return false;
-                return HasOwnSkill == null || !HasOwnSkill(entityId);
+                return EntityBalancingStore.ProductEntityId(entityId) == null;
             }
             catch { return false; }
         }

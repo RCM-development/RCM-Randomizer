@@ -151,16 +151,22 @@ namespace RCM_Randomizer
                     language[entry.Key] = entry.Value;
         }
 
+        // When a roll swaps out a unit's own skill (reduced chance, config-gated), the unit's
+        // OnActivateSkill actions are stripped so ours take their place.
+        public static bool AllowReplaceExisting = true;
+
         public static void TryInject(EntityController entity)
         {
             if (Assigned.Count == 0) return;
             string entityId = entity.entityId;
             if (string.IsNullOrEmpty(entityId) || !Assigned.TryGetValue(entityId, out string skillId)) return;
-            if (entity.hasActiveSkill) return; // never overwrite a unit's own skill
+            if (entity.hasActiveSkill && !AllowReplaceExisting) return;
             var spec = Get(skillId);
             if (spec == null) return;
-            foreach (var existing in entity.events)
-                if (existing.@event == EntityController.Event.OnActivateSkill) return; // re-init guard
+
+            // strip any existing skill actions (the unit's own, or ours from an earlier re-init;
+            // removing then re-adding keeps this idempotent)
+            entity.events.RemoveAll(e => e.@event == EntityController.Event.OnActivateSkill);
 
             entity.hasActiveSkill = true;
             entity.activeSkillOrProduction = EntityController.ActiveSkillOrProduction.ActiveSkill;

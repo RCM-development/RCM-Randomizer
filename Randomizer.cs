@@ -43,6 +43,8 @@ namespace RCM_Randomizer
         ConfigEntry<string> _weaponPriceOverrides;
         ConfigEntry<bool> _rollDrops;
         ConfigEntry<bool> _promoteDropRarities;
+        ConfigEntry<float> _skillReplaceChance;
+        ConfigEntry<bool> _rollUpgrades;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
@@ -60,6 +62,7 @@ namespace RCM_Randomizer
             new Harmony(IDENTIFIER).PatchAll();
             RollEngine.SkillOptions = SkillInjector.Options;
             RollEngine.HasOwnSkill = PrefabHasActiveSkill;
+            StartCoroutine(MixedUnitPresentation.ProcessCaptureQueue());
             _mode = Config.Bind("General", "Mode", Mode.PerSave,
                 "Off = stock game. PerSave = rolled once per profile (reroll via UI). PerRun = fresh rolls from each run's Run ID.");
             _intensity = Config.Bind("General", "Intensity", 1.0f,
@@ -82,6 +85,12 @@ namespace RCM_Randomizer
                 "Consumable drops roll too: damage, radius, duration, heal and credit numbers vary within the rarity band. Their tooltips show the resulting values automatically.");
             _promoteDropRarities = Config.Bind("Drops", "PromoteRarities", true,
                 "Reassign the strongest drops to Rare/UltraRare. All stock drops are Common, so the shop's Rare/UltraRare drop slots never appear; this turns them on and gives strong drops bigger roll bands.");
+            _skillReplaceChance = Config.Bind("Skills", "ReplaceExistingChance", 0.35f,
+                new ConfigDescription("Chance factor that a unit which already HAS a skill gets it swapped for a rolled one (multiplies the normal skill-roll chance; 0 = never touch existing skills).", new AcceptableValueRange<float>(0f, 1f)));
+            _rollUpgrades = Config.Bind("Upgrades", "RollEffects", true,
+                "Upgrade cards roll too: effect magnitudes scale within the rarity band, and the numbers in the card text are rewritten to match.");
+            RollEngine.ReplaceExistingSkillChance = _skillReplaceChance.Value;
+            SkillInjector.AllowReplaceExisting = _skillReplaceChance.Value > 0f;
 
             RCMManager.ConnectMod("Randomizer").ContinueWith(t =>
             {
@@ -116,7 +125,7 @@ namespace RCM_Randomizer
 
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}";
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -125,6 +134,7 @@ namespace RCM_Randomizer
                     // switches, wiping injected entries: re-apply them, it's idempotent
                     ReapplyLocaInjections();
                     SkillInjector.ReapplyDescriptions();
+                    UpgradeRolls.ReapplyDescriptions();
                     if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
                     return;
                 }
@@ -134,6 +144,7 @@ namespace RCM_Randomizer
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
+                if (_rollUpgrades.Value) UpgradeRolls.Apply(seed, _intensity.Value, luck);
                 _appliedSeed = seed;
                 _appliedConfigSignature = signature;
                 RefreshUi();
@@ -173,13 +184,17 @@ namespace RCM_Randomizer
                     {
                         skillCount++;
                         SkillInjector.Assign(roll.EntityId, roll.SkillId);
-                        // numbers via the card-change layer so the card shows them; a unit
-                        // without a mana pool gets one, or the button stays greyed forever
-                        changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillManaCost, spec.ManaCost, roll.EntityId));
+                        // numbers via the card-change layer so the card shows them, as DELTAS
+                        // from the unit's own values (a replaced skill already carries a mana
+                        // cost); a unit without a mana pool gets one, or the button stays greyed
+                        float manaCostDelta = spec.ManaCost - EntityBalancingStore.SkillManaCost(roll.EntityId, returnOriginalValueFromBalancingFile: true);
+                        if (Mathf.Abs(manaCostDelta) > 0.01f)
+                            changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillManaCost, manaCostDelta, roll.EntityId));
                         if (EntityBalancingStore.MaxMana(roll.EntityId, returnOriginalValueFromBalancingFile: true) <= 0)
                             changes.Add(AddChange(EntityBalancingStore.ChangeableValue.MaxMana, 60f, roll.EntityId));
-                        if (spec.SkillRange > 0)
-                            changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillRange, spec.SkillRange, roll.EntityId));
+                        int originalSkillRange = EntityBalancingStore.SkillRange(roll.EntityId, returnOriginalValueFromBalancingFile: true);
+                        if (spec.SkillRange > 0 && originalSkillRange >= 0 && spec.SkillRange != originalSkillRange)
+                            changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillRange, spec.SkillRange - originalSkillRange, roll.EntityId));
                     }
                 }
 
@@ -200,6 +215,7 @@ namespace RCM_Randomizer
             _appliedConfigSignature = null;
             SkillInjector.ClearAssignments();
             RestoreDropRarities();
+            UpgradeRolls.Restore();
             RefreshSpawnedEntities();
         }
 
@@ -371,8 +387,7 @@ namespace RCM_Randomizer
             {
                 if (_mode.Value == Mode.Off || !_turretShuffle.Value) return;
                 if (_donorMap == null || !_donorMap.ContainsKey(entity.EntityId)) return;
-                if (!MixedUnitPresentation.NeedsPortrait(entity.EntityId)) return;
-                StartCoroutine(MixedUnitPresentation.CapturePortrait(entity));
+                MixedUnitPresentation.RequestPortrait(entity);
             }
             catch (Exception e)
             {

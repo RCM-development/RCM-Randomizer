@@ -60,17 +60,27 @@ namespace RCM_Randomizer
 
         // ---- Portraits -------------------------------------------------------------------------
 
-        public static bool NeedsPortrait(string entityId) => !PortraitDone.Contains(entityId);
-
         public static void ResetPortraits()
         {
             // dropping the cache entry makes the next EntityImage() reload the stock sprite
             foreach (string entityId in PortraitDone) EntityBalancingStore.ImageOf.Remove(entityId);
             PortraitDone.Clear();
+            PendingCaptures.Clear();
         }
 
-        // Started from the EntityController.Init postfix, once per entity type.
-        //
+        // Capture requests queue up and a single runner works through them, one capture per
+        // interval. A production building prespawns a batch of unit types at once; giving every
+        // one of them a same-frame GPU readback (ReadPixels stalls the pipeline) was a visible
+        // hitch. Spread out, each readback hides in its own frame.
+        static readonly Queue<KeyValuePair<string, EntityController>> PendingCaptures = new Queue<KeyValuePair<string, EntityController>>();
+
+        public static void RequestPortrait(EntityController entity)
+        {
+            string entityId = entity.EntityId;
+            if (PortraitDone.Add(entityId))
+                PendingCaptures.Enqueue(new KeyValuePair<string, EntityController>(entityId, entity));
+        }
+
         // Rather than photographing the unit in place, a visuals-only copy of it is built far
         // below the map and photographed there. Moving the real unit onto a spare layer did not
         // work: URP's renderer has its own opaque/transparent layer masks, so objects on an
@@ -78,20 +88,37 @@ namespace RCM_Randomizer
         // the booth nothing else is in frame, so the camera keeps normal layers.
         // The camera also has to stay ENABLED for a frame; a manual Camera.Render() draws
         // nothing under URP.
-        public static IEnumerator CapturePortrait(EntityController entity)
+        public static IEnumerator ProcessCaptureQueue()
         {
-            string entityId = entity.EntityId;
-            if (!PortraitDone.Add(entityId)) yield break;
+            var pause = new WaitForSeconds(0.2f);
+            while (true)
+            {
+                if (PendingCaptures.Count == 0) { yield return pause; continue; }
+                var request = PendingCaptures.Dequeue();
 
-            // Clone FIRST, before yielding anywhere. The mixer's swap already ran (it patches the
-            // Init prefix, we run in the postfix), and the game pools entities aggressively: the
-            // original can be deactivated or recycled within a frame, which used to abort the
-            // capture silently. The booth copy has its own lifetime, so nothing can pull it away.
-            GameObject booth = BuildBooth(entity.gameObject, out RenderTexture rt);
-            if (booth == null) { PortraitDone.Remove(entityId); yield break; }
+                if (request.Value == null || !request.Value.gameObject.activeInHierarchy)
+                {
+                    PortraitDone.Remove(request.Key); // retry when the type spawns again
+                    continue;
+                }
 
-            yield return new WaitForEndOfFrame(); // URP renders the enabled camera this frame
+                GameObject booth = BuildBooth(request.Value.gameObject, out RenderTexture rt);
+                if (booth == null) { PortraitDone.Remove(request.Key); continue; }
 
+                yield return new WaitForEndOfFrame(); // URP renders the enabled camera this frame
+
+                try { CaptureFromBooth(request.Key, rt); }
+                finally
+                {
+                    RenderTexture.ReleaseTemporary(rt);
+                    UnityEngine.Object.Destroy(booth);
+                }
+                yield return pause;
+            }
+        }
+
+        static void CaptureFromBooth(string entityId, RenderTexture rt)
+        {
             var previousActive = RenderTexture.active;
             try
             {
@@ -117,8 +144,6 @@ namespace RCM_Randomizer
             finally
             {
                 RenderTexture.active = previousActive;
-                RenderTexture.ReleaseTemporary(rt);
-                UnityEngine.Object.Destroy(booth);
             }
         }
 
