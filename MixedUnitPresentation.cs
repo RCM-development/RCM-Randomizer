@@ -83,9 +83,10 @@ namespace RCM_Randomizer
             string entityId = entity.EntityId;
             if (!PortraitDone.Add(entityId)) yield break;
 
-            yield return null; // let spawn setup settle
-            if (entity == null || !entity.gameObject.activeInHierarchy) { PortraitDone.Remove(entityId); yield break; }
-
+            // Clone FIRST, before yielding anywhere. The mixer's swap already ran (it patches the
+            // Init prefix, we run in the postfix), and the game pools entities aggressively: the
+            // original can be deactivated or recycled within a frame, which used to abort the
+            // capture silently. The booth copy has its own lifetime, so nothing can pull it away.
             GameObject booth = BuildBooth(entity.gameObject, out RenderTexture rt);
             if (booth == null) { PortraitDone.Remove(entityId); yield break; }
 
@@ -143,7 +144,7 @@ namespace RCM_Randomizer
                 var renderers = model.GetComponentsInChildren<Renderer>()
                     .Where(r => (r is MeshRenderer || r is SkinnedMeshRenderer) && r.enabled)
                     .ToArray();
-                if (renderers.Length == 0) throw new Exception("no renderers");
+                if (renderers.Length == 0) throw new Exception("no visible renderers on the copy");
 
                 Bounds bounds = FramingBounds(renderers);
 

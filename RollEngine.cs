@@ -250,16 +250,22 @@ namespace RCM_Randomizer
             return roll;
         }
 
+        // Whether a unit already owns an active skill. The balancing table's SkillType is only
+        // cosmetic metadata (it picks a tooltip icon) and plenty of skill-less units have it set,
+        // so asking it excluded almost everything. The truth lives on the prefab's
+        // EntityController.hasActiveSkill; the plugin supplies this since it can load prefabs.
+        public static Func<string, bool> HasOwnSkill;
+
         // Mobile combat units without a skill of their own; factories route their button to
         // production and can never show a skill (ShowMultipleSkillsWidget routes by IsFactory).
         static bool IsSkillEligible(string entityId)
         {
             try
             {
-                return EntityBalancingStore.HasRole(entityId, UnitRole.Unit)
-                    && !EntityBalancingStore.HasRole(entityId, UnitRole.Building)
-                    && EntityBalancingStore.SkillType(entityId) == SkillType.None
-                    && EntityBalancingStore.ProductEntityId(entityId) == null;
+                if (!EntityBalancingStore.HasRole(entityId, UnitRole.Unit)) return false;
+                if (EntityBalancingStore.HasRole(entityId, UnitRole.Building)) return false;
+                if (EntityBalancingStore.ProductEntityId(entityId) != null) return false;
+                return HasOwnSkill == null || !HasOwnSkill(entityId);
             }
             catch { return false; }
         }

@@ -58,6 +58,7 @@ namespace RCM_Randomizer
             _instance = this;
             new Harmony(IDENTIFIER).PatchAll();
             RollEngine.SkillOptions = SkillInjector.Options;
+            RollEngine.HasOwnSkill = PrefabHasActiveSkill;
             _mode = Config.Bind("General", "Mode", Mode.PerSave,
                 "Off = stock game. PerSave = rolled once per profile (reroll via UI). PerRun = fresh rolls from each run's Run ID.");
             _intensity = Config.Bind("General", "Intensity", 1.0f,
@@ -364,13 +365,36 @@ namespace RCM_Randomizer
                 if (!MixedUnitPresentation.NeedsPortrait(entity.EntityId)) return;
                 StartCoroutine(MixedUnitPresentation.CapturePortrait(entity));
             }
-            catch { }
+            catch (Exception e)
+            {
+                // never swallow silently again: this path went dark once and cost a test round
+                RCMManager.Log("Randomizer: portrait start failed for " + entity.EntityId + " (" + e.Message + ")");
+            }
         }
 
         [HarmonyPatch(typeof(EntityController), "Init")]
         static class Patch_EntityController_Init
         {
             static void Postfix(EntityController __instance) => _instance?.OnEntityInit(__instance);
+        }
+
+        // Does this unit's prefab already define an active skill? Read straight off the prefab
+        // (no instantiation) and cached, since it is asked once per entity per roll.
+        readonly Dictionary<string, bool> _hasSkillCache = new Dictionary<string, bool>();
+
+        bool PrefabHasActiveSkill(string entityId)
+        {
+            if (_hasSkillCache.TryGetValue(entityId, out bool cached)) return cached;
+            bool hasSkill = false;
+            try
+            {
+                var prefab = Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation(entityId));
+                var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                if (controller != null) hasSkill = controller.hasActiveSkill;
+            }
+            catch { hasSkill = true; } // unknown: assume it has one rather than promise a skill we can't deliver
+            _hasSkillCache[entityId] = hasSkill;
+            return hasSkill;
         }
 
         // Size proxy for the donor bands: horizontal footprint of the prefab's mesh bounds,
