@@ -66,17 +66,17 @@ namespace RCM_Randomizer
             // scaled BY CurrentRank through the game's own ValueToAddSource — one unlimited,
             // non-stackable change per stat that is rewritten at each rank rather than accumulating
             // stacks. Veterancy.cs draws a chevron per rank so the ladder is legible on the field.
+            // This deliberately does NOT hand out ranks. Stock prefabs already author their own
+            // RankUp on OnHasKilledEntity - that is the game's "kill five enemies" veterancy - so
+            // adding a second one meant two ranks per kill and the whole ladder climbed in a blur.
+            // What the upgrade changes is the PAYOUT: stock veterancy pays once at the final rank,
+            // this pays at every rank, scaled by the rank itself.
             new Spec
             {
                 Id = "veteran", Label = "Veteran", Power = 0.24f,
-                Description = "Ranks up with every kill. Each rank is worth 8 percent damage and half a point of armor, and shows as a chevron.",
+                Description = "Every rank of veterancy is worth 8 percent damage and half a point of armor, instead of paying out only at the last one.",
                 BuildEvents = () => new List<EntityEvent>
                 {
-                    Event(EntityController.Event.OnHasKilledEntity, new RankUp
-                    {
-                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
-                        amount = 1,
-                    }),
                     Event(EntityController.Event.OnRankChanged,
                         RankScaled(EntityController.ChangeableValue.Damage, SpecificValueChange.AddType.Relative, 0.08f, "rcmVeterancyDamage"),
                         RankScaled(EntityController.ChangeableValue.ArmorProtection, SpecificValueChange.AddType.Absolute, 0.5f, "rcmVeterancyArmor")),

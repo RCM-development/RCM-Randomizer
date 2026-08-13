@@ -52,6 +52,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _progression;
         ConfigEntry<bool> _runPacing;
         ConfigEntry<bool> _veterancyChevrons;
+        ConfigEntry<float> _veterancyRankCost;
         ConfigEntry<float> _runPacingStart;
         ConfigEntry<bool> _rollHacks;
         ConfigEntry<int> _generatedUpgradeCount;
@@ -132,6 +133,10 @@ namespace RCM_Randomizer
             _veterancyChevrons = Config.Bind("Progression", "VeterancyChevrons", true,
                 "Show one chevron per rank above units, cloned from the game's own veteran icon. The stock game tracks ranks but only lights the icon at the final one, so partial progress is invisible.");
             Veterancy.Enabled = _veterancyChevrons.Value;
+            _veterancyRankCost = Config.Bind("Progression", "VeterancyKillsPerRank", 2f,
+                new ConfigDescription("Kills the FIRST rank costs; rank N costs this many times N, so each rank is slower than the last (2 = 2, 4, 6, 8, 10). Stock ranking is flat, which made the last rank as cheap as the first. 0 restores flat stock ranking.", new AcceptableValueRange<float>(0f, 10f)));
+            Veterancy.RankCost = _veterancyRankCost.Value;
+            Veterancy.EscalatingRanks = _veterancyRankCost.Value > 0f;
             _runPacing = Config.Bind("Progression", "PaceBlueprintsWithinRun", true,
                 "Within a run, blueprint rewards start at the cheap end of each rarity band and the ceiling rises as the run progresses, so the expensive units arrive later instead of on level one.");
             _runPacingStart = Config.Bind("Progression", "PaceStartingFraction", 0.45f,
@@ -180,7 +185,7 @@ namespace RCM_Randomizer
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
                 int escalation = CurrentEscalation();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}";
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -205,6 +210,8 @@ namespace RCM_Randomizer
                 RunPacing.Enabled = _runPacing.Value;
                 RunPacing.StartingFraction = _runPacingStart.Value;
                 Veterancy.Enabled = _veterancyChevrons.Value;
+                Veterancy.RankCost = _veterancyRankCost.Value;
+                Veterancy.EscalatingRanks = _veterancyRankCost.Value > 0f;
                 // rebuilt per cycle, not once at Awake: the pool depends on the ladder, and on
                 // MetaGame being loaded at all (it is not, when Awake runs)
                 RollEngine.SkillOptions = SkillInjector.Options;

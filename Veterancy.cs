@@ -22,7 +22,19 @@ namespace RCM_Randomizer
         public static bool Enabled;
         public static int MaxChevrons = 5;
 
+        // Stock ranking is flat: one kill, one rank, so the last rank costs exactly what the first
+        // did even though it is worth far more. Ranks are now bought with kill credits on a rising
+        // price, which also absorbs duplicate RankUp sources (two cards granting ranks no longer
+        // multiply the rate, they just fill the same meter twice as fast).
+        public static bool EscalatingRanks = true;
+        public static float RankCost = 2f; // rank N costs RankCost * N kills: 2, 4, 6, 8, 10
+
         const string ChevronPrefix = "rcmChevron";
+
+        // instance id -> kill credits banked toward the next rank
+        static readonly Dictionary<int, float> Credits = new Dictionary<int, float>();
+
+        static float CostOf(int rank) => RankCost * Math.Max(1, rank);
 
         // Entities we have actually built chevrons for. Without this, hiding stale chevrons would
         // mean a Find() sweep at every spawn for every unit, including the vast majority that will
@@ -96,6 +108,35 @@ namespace RCM_Randomizer
         [HarmonyPatch(typeof(EntityController), "RankUp")]
         static class Patch_RankUp
         {
+            // Converts each granted rank into credits and only lets a rank through once the rising
+            // price is paid. Returning false banks the progress without a rank change, so
+            // OnRankChanged correctly does not fire.
+            static bool Prefix(EntityController __instance, ref int amount)
+            {
+                if (!Enabled || !EscalatingRanks || amount <= 0) return true;
+                try
+                {
+                    int id = __instance.GetInstanceID();
+                    Credits.TryGetValue(id, out float credits);
+                    credits += amount;
+
+                    int rank = __instance.CurrentRank;
+                    int maxRank = __instance.MaxRank;
+                    int granted = 0;
+                    while (rank + granted < maxRank && credits >= CostOf(rank + granted + 1))
+                    {
+                        credits -= CostOf(rank + granted + 1);
+                        granted++;
+                    }
+
+                    Credits[id] = credits;
+                    if (granted <= 0) return false;
+                    amount = granted;
+                    return true;
+                }
+                catch { return true; } // never swallow a rank because our accounting broke
+            }
+
             static void Postfix(EntityController __instance)
             {
                 try { Refresh(__instance); }
@@ -110,7 +151,12 @@ namespace RCM_Randomizer
         {
             static void Postfix(EntityController __instance)
             {
-                try { Refresh(__instance); }
+                try
+                {
+                    // pooled bodies are reused, so banked credits must not survive into the next life
+                    Credits.Remove(__instance.GetInstanceID());
+                    Refresh(__instance);
+                }
                 catch { }
             }
         }
