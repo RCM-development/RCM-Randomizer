@@ -30,6 +30,9 @@ namespace RCM_Randomizer
             public string RoleWord;              // null = any card
             public EntityController.Event Trigger;
             public Func<IEntityAction> BuildAction;
+            // Set instead of Trigger/BuildAction when the rule needs more than one event, as
+            // veterancy does: one event to earn a rank, another to pay out for holding it.
+            public Func<List<EntityEvent>> BuildEvents;
         }
 
         // Self-targeted effects on events where the payload's Self is unambiguous. Nothing here
@@ -58,15 +61,25 @@ namespace RCM_Randomizer
                 Trigger = EntityController.Event.OnHasKilledEntity,
                 BuildAction = () => Timed(EntityController.ChangeableValue.AttackCooldown, -0.25f, 6f, "rcmModAdrenaline"),
             },
+            // Multi-tier veterancy. The stock game ranks a unit up on kills but only pays out at the
+            // final rank, all at once. Here every rank is worth something, because the bonus is
+            // scaled BY CurrentRank through the game's own ValueToAddSource — one unlimited,
+            // non-stackable change per stat that is rewritten at each rank rather than accumulating
+            // stacks. Veterancy.cs draws a chevron per rank so the ladder is legible on the field.
             new Spec
             {
-                Id = "veteran", Label = "Veteran", Power = 0.20f,
-                Description = "Ranks up with every kill.",
-                Trigger = EntityController.Event.OnHasKilledEntity,
-                BuildAction = () => new RankUp
+                Id = "veteran", Label = "Veteran", Power = 0.24f,
+                Description = "Ranks up with every kill. Each rank is worth 8 percent damage and half a point of armor, and shows as a chevron.",
+                BuildEvents = () => new List<EntityEvent>
                 {
-                    operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
-                    amount = 1,
+                    Event(EntityController.Event.OnHasKilledEntity, new RankUp
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        amount = 1,
+                    }),
+                    Event(EntityController.Event.OnRankChanged,
+                        RankScaled(EntityController.ChangeableValue.Damage, SpecificValueChange.AddType.Relative, 0.08f, "rcmVeterancyDamage"),
+                        RankScaled(EntityController.ChangeableValue.ArmorProtection, SpecificValueChange.AddType.Absolute, 0.5f, "rcmVeterancyArmor")),
                 },
             },
             new Spec
@@ -127,6 +140,31 @@ namespace RCM_Randomizer
             },
         };
 
+        static EntityEvent Event(EntityController.Event trigger, params IEntityAction[] actions)
+        {
+            var entityEvent = new EntityEvent { @event = trigger };
+            entityEvent.actions.AddRange(actions);
+            return entityEvent;
+        }
+
+        // A permanent change whose size is the unit's CurrentRank times the multiplier. Not
+        // stackable and always the same originator id, so each rank REPLACES the previous grant
+        // instead of piling stacks on top of one another — the bonus tracks the rank exactly, and
+        // it falls back to nothing when Init resets the rank to zero.
+        static ChangeSpecificValue RankScaled(EntityController.ChangeableValue value, SpecificValueChange.AddType addType, float multiplier, string originator) =>
+            new ChangeSpecificValue
+            {
+                operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                valueToChange = value,
+                addType = addType,
+                valueToAddSource = ChangeSpecificValue.ValueToAddSource.CurrentRank,
+                multiplier = multiplier,
+                isStackable = false,
+                originatorIdOption = ChangeSpecificValue.OriginatorIdOption.GivenString,
+                originatorId = originator,
+                durationType = ChangeSpecificValue.DurationType.Unlimited,
+            };
+
         static ChangeSpecificValue Timed(EntityController.ChangeableValue value, float multiplier, float seconds, string originator) =>
             new ChangeSpecificValue
             {
@@ -150,11 +188,9 @@ namespace RCM_Randomizer
             var mod = ScriptableObject.CreateInstance<EntityModScriptableObject>();
             mod.name = "rcmmod_" + upgradeId + "_" + spec.Id;
             mod.entityIdentifiers = new List<EntityIdentifier>();
-            mod.events = new List<EntityEvent>();
-
-            var entityEvent = new EntityEvent { @event = spec.Trigger };
-            entityEvent.actions.Add(spec.BuildAction());
-            mod.events.Add(entityEvent);
+            mod.events = spec.BuildEvents != null
+                ? spec.BuildEvents()
+                : new List<EntityEvent> { Event(spec.Trigger, spec.BuildAction()) };
             return mod;
         }
     }
