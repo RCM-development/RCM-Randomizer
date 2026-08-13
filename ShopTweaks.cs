@@ -10,8 +10,10 @@ namespace RCM_Randomizer
     // with no multiplier anywhere in the game, so three small patches do the work:
     // 1) sales/markups: an ambient multiplier applied inside the CoinsAmount postfixes ONLY
     //    while a slot's SetupNewItem runs (a global price patch would leak into reward UI).
-    // 2) slot rarity: seeded occasional upgrade of a slot's rarity before it draws.
-    // 3) the research slot: Shop.GiveResearchId is hardcoded null in the stock game — revive it.
+    // 2) slot rarity: seeded occasional upgrade of a slot's rarity before it draws. This works for
+    //    relics and upgrades, which have real Rare/UltraRare entries. It LOOKS dead in the stock
+    //    game because every stock drop is Common, so a drop slot at Rare or above never finds
+    //    anything and hides itself; our generated drops are Rare and fill exactly those slots.
     // Plus: pools that come up empty leave a visible blank card; deactivate those slots.
     public static class ShopTweaks
     {
@@ -90,26 +92,11 @@ namespace RCM_Randomizer
             static void Postfix(ShopItemDrop __instance) => EndSlot(__instance, __instance._item);
         }
 
-        // ---- the dead research slot ------------------------------------------------------------
-
-        [HarmonyPatch(typeof(Shop), "GiveResearchId")]
-        static class Patch_GiveResearchId
-        {
-            static void Postfix(ref string __result)
-            {
-                if (!Enabled || __result != null) return;
-                try
-                {
-                    var candidates = ResearchBalancingStore.ResearchIds(inactive: false, isForSpecialists: false);
-                    if (candidates == null || candidates.Count == 0) return;
-                    candidates.Sort(StringComparer.Ordinal);
-                    SlotRoll("research", "pick", out var rand);
-                    __result = candidates[rand.Next(candidates.Count)];
-                    RCMManager.Log("Randomizer: revived shop research slot with " + __result);
-                }
-                catch (Exception e) { RCMManager.Log("Randomizer: research slot revival failed (" + e.Message + ")"); }
-            }
-        }
+        // The research slot is NOT revived. Shop.GiveResearchId returns null unconditionally, which
+        // reads like a disabled feature, but epic400 confirmed research is abandoned rather than
+        // switched off: the reward-map UI for it still exists and does nothing, so the slots behave
+        // as 0-coin blanks. Handing out a research card would give the player something that looks
+        // like a reward and has no effect, which is worse than the empty slot we started with.
 
         static int Fnv1a(string s)
         {

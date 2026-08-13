@@ -119,7 +119,7 @@ namespace RCM_Randomizer
             _enableHijack = Config.Bind("Skills", "EnableHijack", false,
                 "EXPERIMENTAL: the Hijack skill converts an enemy unit to your side via the game's own side-transition. Off until per-side bookkeeping is verified in-game.");
             _shopTweaks = Config.Bind("Shop", "SeededTweaks", true,
-                "Seeded shop variety: sales/markups, occasional rarity-upgraded slots, revives the stock game's dead research slot, hides blank slots.");
+                "Seeded shop variety: sales/markups, occasional rarity-upgraded slots, hides blank slots.");
             _auraTweaks = Config.Bind("Auras", "SeededTweaks", true,
                 "Support auras vary per seed: target count 2-5 and reach x0.8-1.3 for units with limited-target auras (Support Tank pattern).");
             _engineerTrait = Config.Bind("Engineers", "SeededTrait", true,
