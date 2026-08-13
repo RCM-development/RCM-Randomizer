@@ -80,12 +80,18 @@ namespace RCM_Randomizer
             if (keep >= pool.Count) return;
             if (keep < FloorCount) keep = FloorCount;
 
+            // Values are read once up front rather than from inside the comparator: a sort asks
+            // for the same element many times, and each lookup walks the balancing store.
+            var value = new Dictionary<string, long>(pool.Count);
+            foreach (string id in pool)
+                if (!value.ContainsKey(id)) value[id] = ValueOf(id);
+
             // deterministic: value first, id as the tie-break, so the same run state always
             // produces the same ceiling regardless of the order the store handed them to us
             var ordered = new List<string>(pool);
             ordered.Sort((a, b) =>
             {
-                int byValue = ValueOf(a).CompareTo(ValueOf(b));
+                int byValue = value[a].CompareTo(value[b]);
                 return byValue != 0 ? byValue : string.CompareOrdinal(a, b);
             });
 

@@ -233,6 +233,12 @@ namespace RCM_Randomizer
                 _appliedSeed = seed;
                 _appliedConfigSignature = signature;
                 RefreshUi();
+                // One line that says what the run is actually set up to do. Everything above logs
+                // its own detail, but a single summary is what makes a bug report answerable
+                // without asking for the whole file.
+                RCMManager.Log($"Randomizer ready: seed {seed}, {_mode.Value}, luck {luck:F2}, {Progression.Describe()}, "
+                    + $"pacing {(RunPacing.Enabled ? $"from {RunPacing.StartingFraction:P0}" : "off")}, "
+                    + $"skills {RollEngine.SkillOptions.Count} available");
             }
             catch (Exception e)
             {
@@ -706,7 +712,14 @@ namespace RCM_Randomizer
                 var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
                 if (controller != null) hasSkill = controller.hasActiveSkill;
             }
-            catch { hasSkill = true; } // unknown: assume it has one rather than promise a skill we can't deliver
+            catch
+            {
+                // Unknown: assume it has one rather than promise a skill we can't deliver, but do
+                // NOT cache that guess. With ReplaceExistingChance at 0 a cached "true" means the
+                // unit can never be rolled a skill again, so one transient load failure early in
+                // the session would silently switch the whole skill system off.
+                return true;
+            }
             _hasSkillCache[entityId] = hasSkill;
             return hasSkill;
         }

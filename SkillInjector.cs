@@ -50,20 +50,28 @@ namespace RCM_Randomizer
         static SpawnObject ResolveMineSpawner()
         {
             if (_mineResolved) return _mineSpawner;
-            _mineResolved = true;
             try
             {
                 EntityBalancingStore.Init();
-                foreach (string donorId in MineDonorIds())
+                var donors = MineDonorIds();
+                // No candidates at all means the store was not ready yet, not that the game has no
+                // mines. Latching that would disable Minefield for the rest of the session on the
+                // strength of one early call, so leave it unresolved and try again next cycle.
+                if (donors.Count == 0) return null;
+
+                foreach (string donorId in donors)
                 {
                     _mineSpawner = FindSpawner(donorId);
                     if (_mineSpawner == null) continue;
+                    _mineResolved = true;
                     RCMManager.Log("Randomizer: Minefield takes its mine from " + donorId);
                     return _mineSpawner;
                 }
+                // searched real candidates and none of them spawns anything: a genuine negative
+                _mineResolved = true;
+                RCMManager.Log($"Randomizer: no mine layer found in {donors.Count} candidates, Minefield will not be offered");
             }
             catch (Exception e) { RCMManager.Log("Randomizer: mine resolution failed (" + e.Message + ")"); }
-            RCMManager.Log("Randomizer: no mine layer found, Minefield will not be offered");
             return null;
         }
 

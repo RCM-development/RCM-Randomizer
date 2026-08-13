@@ -49,7 +49,7 @@ namespace RCM_Randomizer
                 else parameters.inactive = true;
                 EntityBalancingStore.EntityBalancingParametersList[index] = parameters;
             }
-            if (written > 0) TestMod.RCMManager.Log($"Randomizer: {written} drops generated");
+            if (count > 0) TestMod.RCMManager.Log($"Randomizer: {count} drops generated, {written} unlocked ({Progression.Describe()})");
         }
 
         public static void Deactivate()
@@ -85,8 +85,9 @@ namespace RCM_Randomizer
             row.rarity = Rarity.Rare; // generated drops fill the once-hidden rare shop slots
             // the donor's own unlock level is a floor: a reskin of a late drop is never earlier
             int tier = Progression.TierOf(row.rarity, 0f);
+            bool unlocked = Progression.IsUnlocked(tier);
             row.neededExperienceLevel = Math.Max(donor.neededExperienceLevel, Progression.NeededExperienceLevelFor(tier));
-            if (!Progression.IsUnlocked(tier)) { row.inactive = true; return false; }
+            row.inactive = !unlocked;
 
             double u = rand.NextDouble() * 2.0 - 1.0 + Math.Min(0.6, 0.25 * luck);
             if (u > 1.0) u = 1.0;
@@ -103,9 +104,11 @@ namespace RCM_Randomizer
             string name = template.NameFormat;
             string description = string.Format(CultureInfo.InvariantCulture, template.DescriptionFormat, pct, direction);
             string key = id.ToLowerInvariant();
+            // written even when the tier is still locked: a save that already owns this drop must
+            // keep showing a name rather than a raw loca key
             LocaEntries[key] = new KeyValuePair<string, string>(name, description);
             WriteLocaDictionaries(key, name, description);
-            return true;
+            return unlocked;
         }
 
         static void EnsureRows(int count)
