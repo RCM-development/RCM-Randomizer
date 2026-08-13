@@ -83,6 +83,10 @@ namespace RCM_Randomizer
             row.isAllowedAsBlueprint = false;
             row.isAllowedForAi = false;
             row.rarity = Rarity.Rare; // generated drops fill the once-hidden rare shop slots
+            // the donor's own unlock level is a floor: a reskin of a late drop is never earlier
+            int tier = Progression.TierOf(row.rarity, 0f);
+            row.neededExperienceLevel = Math.Max(donor.neededExperienceLevel, Progression.NeededExperienceLevelFor(tier));
+            if (!Progression.IsUnlocked(tier)) { row.inactive = true; return false; }
 
             double u = rand.NextDouble() * 2.0 - 1.0 + Math.Min(0.6, 0.25 * luck);
             if (u > 1.0) u = 1.0;

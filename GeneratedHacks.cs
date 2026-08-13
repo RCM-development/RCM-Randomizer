@@ -53,13 +53,13 @@ namespace RCM_Randomizer
                 if (i < count)
                 {
                     var rand = new System.Random(seed ^ Fnv1a("genhack:" + i));
-                    written++;
                     WriteContent(ref parameters, rand, luck, id);
+                    if (!parameters.inactive) written++;
                 }
                 else parameters.inactive = true;
                 RelicBalancingStore._relicBalancingScriptableObject.parameters[index] = parameters;
             }
-            if (written > 0) TestMod.RCMManager.Log($"Randomizer: {written} hacks generated");
+            if (count > 0) TestMod.RCMManager.Log($"Randomizer: {count} hacks generated, {written} unlocked ({Progression.Describe()})");
         }
 
         public static void Deactivate()
@@ -98,7 +98,9 @@ namespace RCM_Randomizer
             float power = Math.Abs(RollEngine.WeightOf(buff.value)) * pct;
             row.rarity = power > 0.06f ? Rarity.Rare : Rarity.Common;
             row.coinsAmount = (int)(120 + 1600 * power * (1f - Math.Min(0.4f, 0.12f * luck)));
-            row.inactive = false;
+            int tier = Progression.TierOf(row.rarity, power);
+            row.neededExperienceLevel = Progression.NeededExperienceLevelFor(tier);
+            row.inactive = !Progression.IsUnlocked(tier);
 
             int pctShown = (int)Math.Round(pct * 100f);
             string sign = mult > 1f ? "+" : "-";

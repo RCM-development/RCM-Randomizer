@@ -49,6 +49,7 @@ namespace RCM_Randomizer
         ConfigEntry<string> _rollExcludeIds;
         ConfigEntry<bool> _enemyRolls;
         ConfigEntry<int> _capturedTechCount;
+        ConfigEntry<bool> _progression;
         ConfigEntry<bool> _rollHacks;
         ConfigEntry<int> _generatedUpgradeCount;
         ConfigEntry<bool> _engineerTrait;
@@ -125,6 +126,9 @@ namespace RCM_Randomizer
                 "Enemy-only units get their own seeded variance that escalates every level of the run: bigger bands, stronger upward bias. Every run's opposition drifts differently.");
             _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
                 new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
+            _progression = Config.Bind("Progression", "GateGeneratedContent", true,
+                "Generated upgrades, hacks, drops, exotic skills and captured tech unlock with progression like stock cards: each carries an experience level, and how much of the pool is live also follows ascension, heat and the chosen difficulty. Off = everything available immediately. Enemies are always ungated.");
+            Progression.Enabled = _progression.Value;
             RollEngine.ReplaceExistingSkillChance = _skillReplaceChance.Value;
             SkillInjector.AllowReplaceExisting = _skillReplaceChance.Value > 0f;
             RollEngine.ExcludedIds = new HashSet<string>(
@@ -164,7 +168,7 @@ namespace RCM_Randomizer
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
                 int escalation = CurrentEscalation();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}";
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -185,6 +189,10 @@ namespace RCM_Randomizer
 
                 RemoveRolls();
                 SkillInjector.EnableHijack = _enableHijack.Value;
+                Progression.Enabled = _progression.Value;
+                // rebuilt per cycle, not once at Awake: the pool depends on the ladder, and on
+                // MetaGame being loaded at all (it is not, when Awake runs)
+                RollEngine.SkillOptions = SkillInjector.Options;
                 ShopTweaks.Enabled = _shopTweaks.Value; ShopTweaks.Seed = seed; ShopTweaks.Luck = luck;
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
@@ -447,8 +455,18 @@ namespace RCM_Randomizer
             candidates.Sort(StringComparer.Ordinal);
             if (candidates.Count == 0) return;
 
+            // Fielding the enemy's own turrets is late-run material: the ladder decides whether
+            // any of it is available and how many pieces come with it (tier 2 = one, tier 4 = three).
+            int allowedByLadder = Progression.UnlockedTier() - 1;
+            if (Progression.Enabled && allowedByLadder <= 0)
+            {
+                RCMManager.Log($"Randomizer: captured tech still locked ({Progression.Describe()})");
+                return;
+            }
+
             var rand = new System.Random(seed ^ 0x0CAF7EC);
             int count = Mathf.Min(_capturedTechCount.Value, candidates.Count);
+            if (Progression.Enabled) count = Mathf.Min(count, allowedByLadder);
             for (int n = 0; n < count && candidates.Count > 0; n++)
             {
                 string pick = candidates[rand.Next(candidates.Count)];
@@ -459,7 +477,7 @@ namespace RCM_Randomizer
                 _capturedTechOriginals[pick] = parameters;
                 parameters.isAllowedAsBlueprint = true;
                 parameters.rarity = n == 0 ? Rarity.Rare : Rarity.UltraRare;
-                parameters.neededExperienceLevel = 0;
+                parameters.neededExperienceLevel = Progression.NeededExperienceLevelFor(Progression.TierOf(parameters.rarity, 0f));
                 EntityBalancingStore.EntityBalancingParametersList[index] = parameters;
                 _capturedTechIds.Add(pick);
             }

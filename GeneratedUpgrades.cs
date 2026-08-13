@@ -30,6 +30,7 @@ namespace RCM_Randomizer
             public int Coins;
             public UnitRole RoleGate = UnitRole.All;
             public string RoleWord; // null = applies to all cards
+            public float Power;     // drives the progression tier, not just the price
             public List<RolledStatPart> Parts = new List<RolledStatPart>();
         }
 
@@ -71,6 +72,7 @@ namespace RCM_Randomizer
             var specs = Generate(seed, luck, count);
             EnsureRows(specs.Count);
 
+            int locked = 0;
             for (int i = 0; i < AppendedRows.Count; i++)
             {
                 string id = IdPrefix + i;
@@ -79,7 +81,7 @@ namespace RCM_Randomizer
                 if (i < specs.Count)
                 {
                     var spec = specs[i];
-                    WriteRow(ref parameters, spec);
+                    if (!WriteRow(ref parameters, spec)) locked++;
                     RebuildChanges(parameters.scriptableObject, spec);
                     SetLoca(id, spec.Name, spec.Description);
                 }
@@ -90,7 +92,7 @@ namespace RCM_Randomizer
                 UpgradeBalancingStore._upgradeBalancingScriptableObject.parameters[index] = parameters;
             }
             if (specs.Count > 0)
-                TestMod.RCMManager.Log($"Randomizer: {specs.Count} upgrades generated");
+                TestMod.RCMManager.Log($"Randomizer: {specs.Count} upgrades generated, {specs.Count - locked} unlocked ({Progression.Describe()})");
         }
 
         public static void Deactivate()
@@ -160,6 +162,7 @@ namespace RCM_Randomizer
             spec.Parts.Add(new RolledStatPart { Value = buff.value, Multiplier = buffMult });
             spec.Parts.Add(new RolledStatPart { Value = nerf.value, Multiplier = nerfMult });
             spec.Rarity = Rarity.Common;
+            spec.Power = 0f; // paid for by its own nerf: available from the start
             spec.Coins = 60 + rand.Next(40);
             spec.Description = DescribePart(buff.word, buffMult, buff.lowerIsBetter) + ", but "
                              + DescribePart(nerf.word, nerfMult, nerf.lowerIsBetter) + ".";
@@ -177,6 +180,7 @@ namespace RCM_Randomizer
             spec.RoleGate = role.role;
             spec.RoleWord = role.word;
             spec.Rarity = pct > 0.25f ? Rarity.Rare : Rarity.Common;
+            spec.Power = Math.Abs(RollEngine.WeightOf(stat.value)) * pct;
             spec.Coins = (int)(90 + 500 * Math.Abs(RollEngine.WeightOf(stat.value)) * pct);
             spec.Description = role.word + " only: " + DescribePart(stat.word, mult, stat.lowerIsBetter) + ".";
         }
@@ -190,6 +194,7 @@ namespace RCM_Randomizer
             float power = Math.Abs(RollEngine.WeightOf(stat.value)) * pct;
 
             spec.Parts.Add(new RolledStatPart { Value = stat.value, Multiplier = mult });
+            spec.Power = power;
             spec.Rarity = power > 0.09f ? Rarity.UltraRare : (power > 0.05f ? Rarity.Rare : Rarity.Common);
             spec.Coins = (int)(100 + 1400 * power * (1f - Math.Min(0.4f, 0.12f * luck)));
             spec.Description = DescribePart(stat.word, mult, stat.lowerIsBetter) + ".";
@@ -243,12 +248,18 @@ namespace RCM_Randomizer
             }
         }
 
-        static void WriteRow(ref UpgradeBalancingParameters row, Spec spec)
+        // Returns false when the ladder has not unlocked this tier yet, so the caller can report
+        // how much of the generated pool is still ahead of the player.
+        static bool WriteRow(ref UpgradeBalancingParameters row, Spec spec)
         {
+            int tier = Progression.TierOf(spec.Rarity, spec.Power);
+            bool unlocked = Progression.IsUnlocked(tier);
             row.coinsAmount = spec.Coins;
             row.rarity = spec.Rarity;
-            row.inactive = false;
+            row.neededExperienceLevel = Progression.NeededExperienceLevelFor(tier);
+            row.inactive = !unlocked;
             row.scriptableObject.entityMustHaveOneOfTheseRoles = spec.RoleGate;
+            return unlocked;
         }
 
         static void RebuildChanges(CardUpgradeScriptableObject so, Spec spec)

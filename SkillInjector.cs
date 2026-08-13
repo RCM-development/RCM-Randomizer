@@ -26,6 +26,7 @@ namespace RCM_Randomizer
             public int SkillRange; // cells, for targeted skills (0 for self skills)
             public bool TargetEnemiesOnly;
             public bool HighEnd;         // only rolls on Rare/UltraRare cards
+            public int MinTier;          // progression tier the run must have unlocked
             public float WeaponNerf = 1f; // caster archetype: own weapon damage multiplier (budget-credited)
             public Func<List<IEntityAction>> BuildActions;
             // Skills that depend on content we have to find at runtime (prefabs, donor actions)
@@ -133,7 +134,7 @@ namespace RCM_Randomizer
         {
             new SkillSpec
             {
-                Id = "minefield", ShortName = "Minefield", ManaCost = 45f, Power = 0.20f,
+                Id = "minefield", ShortName = "Minefield", ManaCost = 45f, Power = 0.20f, MinTier = 1,
                 Description = "Scatter 4 mines at the target location.",
                 Target = TargetOrigin.ChosenLocation, SkillRange = 7,
                 IsAvailable = () => ResolveMineSpawner() != null,
@@ -163,7 +164,7 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "reanimate", ShortName = "Reanimate", ManaCost = 50f, Power = 0.22f, HighEnd = true,
+                Id = "reanimate", ShortName = "Reanimate", ManaCost = 50f, Power = 0.22f, HighEnd = true, MinTier = 3,
                 Description = "Raise 3 scrap crawlers at the target location. They fall apart after 25 seconds.",
                 Target = TargetOrigin.ChosenLocation, SkillRange = 7,
                 BuildActions = () =>
@@ -186,7 +187,7 @@ namespace RCM_Randomizer
                 Id = "hijack", ShortName = "Hijack", ManaCost = 80f, Power = 0.50f,
                 Description = "Seize control of the target enemy unit. Diverting this much power cripples this unit's own weapons.",
                 Target = TargetOrigin.ChosenEntity, SkillRange = 5, TargetEnemiesOnly = true,
-                HighEnd = true, WeaponNerf = 0.5f,
+                HighEnd = true, MinTier = 4, WeaponNerf = 0.5f,
                 BuildActions = () => new List<IEntityAction> { new HijackAction() }
             },
             new SkillSpec
@@ -352,7 +353,7 @@ namespace RCM_Randomizer
                 Id = "orbital", ShortName = "Orbital Strike", ManaCost = 60f, Power = 0.40f,
                 Description = "Call in an artillery barrage at the target location. Powering the uplink cripples this unit's own weapons.",
                 Target = TargetOrigin.ChosenLocation, SkillRange = 6, // has to get close: that IS the drawback
-                HighEnd = true, WeaponNerf = 0.35f,
+                HighEnd = true, MinTier = 3, WeaponNerf = 0.35f,
                 BuildActions = () => new List<IEntityAction>
                 {
                     new SpawnObject
@@ -388,7 +389,9 @@ namespace RCM_Randomizer
         };
 
         public static IReadOnlyList<RollEngine.SkillOption> Options =>
-            Catalog.Where(s => (s.Id != "hijack" || EnableHijack) && (s.IsAvailable == null || s.IsAvailable()))
+            Catalog.Where(s => (s.Id != "hijack" || EnableHijack)
+                            && (s.IsAvailable == null || s.IsAvailable())
+                            && Progression.IsUnlocked(s.MinTier))
             .Select(s => new RollEngine.SkillOption
             {
                 Id = s.Id, ShortName = s.ShortName, Power = s.Power,
