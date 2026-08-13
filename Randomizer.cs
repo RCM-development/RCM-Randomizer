@@ -50,6 +50,8 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _enemyRolls;
         ConfigEntry<int> _capturedTechCount;
         ConfigEntry<bool> _progression;
+        ConfigEntry<bool> _runPacing;
+        ConfigEntry<float> _runPacingStart;
         ConfigEntry<bool> _rollHacks;
         ConfigEntry<int> _generatedUpgradeCount;
         ConfigEntry<bool> _engineerTrait;
@@ -126,6 +128,12 @@ namespace RCM_Randomizer
                 "Enemy-only units get their own seeded variance that escalates every level of the run: bigger bands, stronger upward bias. Every run's opposition drifts differently.");
             _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
                 new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
+            _runPacing = Config.Bind("Progression", "PaceBlueprintsWithinRun", true,
+                "Within a run, blueprint rewards start at the cheap end of each rarity band and the ceiling rises as the run progresses, so the expensive units arrive later instead of on level one.");
+            _runPacingStart = Config.Bind("Progression", "PaceStartingFraction", 0.45f,
+                new ConfigDescription("How much of each rarity band is available at the very start of a run (1 = no pacing).", new AcceptableValueRange<float>(0.1f, 1f)));
+            RunPacing.Enabled = _runPacing.Value;
+            RunPacing.StartingFraction = _runPacingStart.Value;
             _progression = Config.Bind("Progression", "GateGeneratedContent", true,
                 "Generated upgrades, hacks, drops, exotic skills and captured tech unlock with progression like stock cards: each carries an experience level, and how much of the pool is live also follows ascension, heat and the chosen difficulty. Off = everything available immediately. Enemies are always ungated.");
             Progression.Enabled = _progression.Value;
@@ -168,7 +176,7 @@ namespace RCM_Randomizer
                 int seed = CurrentSeed();
                 float luck = CurrentLuck();
                 int escalation = CurrentEscalation();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}";
+                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -190,6 +198,8 @@ namespace RCM_Randomizer
                 RemoveRolls();
                 SkillInjector.EnableHijack = _enableHijack.Value;
                 Progression.Enabled = _progression.Value;
+                RunPacing.Enabled = _runPacing.Value;
+                RunPacing.StartingFraction = _runPacingStart.Value;
                 // rebuilt per cycle, not once at Awake: the pool depends on the ladder, and on
                 // MetaGame being loaded at all (it is not, when Awake runs)
                 RollEngine.SkillOptions = SkillInjector.Options;
@@ -326,6 +336,7 @@ namespace RCM_Randomizer
             GeneratedDrops.Deactivate();
             ShopTweaks.Enabled = false;
             AuraTweaks.Enabled = false;
+            RunPacing.Enabled = false;
             if (hadChanges)
             {
                 EntityBalancingStore.InvalidateCache();
