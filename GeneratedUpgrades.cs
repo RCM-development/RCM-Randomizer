@@ -31,6 +31,7 @@ namespace RCM_Randomizer
             public UnitRole RoleGate = UnitRole.All;
             public string RoleWord; // null = applies to all cards
             public float Power;     // drives the progression tier, not just the price
+            public BehaviourMods.Spec Behaviour; // null for plain stat upgrades
             public List<RolledStatPart> Parts = new List<RolledStatPart>();
         }
 
@@ -123,14 +124,16 @@ namespace RCM_Randomizer
             {
                 var rand = new System.Random(seed ^ Fnv1a("genup:" + i));
                 var spec = new Spec { Id = IdPrefix + i };
-                int template = rand.Next(3);
+                int template = rand.Next(4);
                 switch (template)
                 {
                     case 0: GenerateTradeOff(spec, rand, luck); break;
                     case 1: GenerateRoleThemed(spec, rand, luck); break;
+                    case 2: GenerateBehaviour(spec, rand, luck); break;
                     default: GeneratePureBuff(spec, rand, luck); break;
                 }
-                spec.Name = NamePool[rand.Next(NamePool.Length)];
+                // behaviour upgrades name themselves after the rule they add
+                if (spec.Name == null) spec.Name = NamePool[rand.Next(NamePool.Length)];
                 specs.Add(spec);
             }
             // disambiguate duplicate names ("Field Mod II")
@@ -198,6 +201,31 @@ namespace RCM_Randomizer
             spec.Rarity = power > 0.09f ? Rarity.UltraRare : (power > 0.05f ? Rarity.Rare : Rarity.Common);
             spec.Coins = (int)(100 + 1400 * power * (1f - Math.Min(0.4f, 0.12f * luck)));
             spec.Description = DescribePart(stat.word, mult, stat.lowerIsBetter) + ".";
+        }
+
+        // A rule rather than a number: the upgrade carries an EntityMod whose event handler runs on
+        // the unit. It still pays for itself with a real stat nerf, which keeps the budget honest and
+        // gives the card a visible line instead of a stat block that looks empty.
+        static void GenerateBehaviour(Spec spec, System.Random rand, float luck)
+        {
+            var behaviour = BehaviourMods.Catalog[rand.Next(BehaviourMods.Catalog.Count)];
+            spec.Behaviour = behaviour;
+            spec.Name = behaviour.Label;
+            spec.Power = behaviour.Power;
+            spec.RoleGate = behaviour.RoleGate;
+            spec.RoleWord = behaviour.RoleWord;
+
+            // luck shaves part of the payback, as everywhere else
+            var nerf = StatPool[rand.Next(StatPool.Length)];
+            float wNerf = Math.Abs(RollEngine.WeightOf(nerf.value));
+            float lnNerf = -behaviour.Power / Math.Max(0.05f, wNerf) * (1f - Math.Min(0.5f, 0.15f * luck));
+            float nerfMult = nerf.lowerIsBetter ? (float)Math.Exp(-lnNerf) : (float)Math.Exp(lnNerf);
+            spec.Parts.Add(new RolledStatPart { Value = nerf.value, Multiplier = nerfMult });
+
+            spec.Rarity = behaviour.Power > 0.14f ? Rarity.Rare : Rarity.Common;
+            spec.Coins = (int)(110 + 900 * behaviour.Power);
+            spec.Description = behaviour.Description + " In exchange, "
+                             + DescribePart(nerf.word, nerfMult, nerf.lowerIsBetter) + ".";
         }
 
         static string DescribePart(string word, float multiplier, bool lowerIsBetter)
@@ -279,6 +307,14 @@ namespace RCM_Randomizer
                 change.changeableValue = part.Value;
                 so.cardChanges.Add(change);
             }
+
+            // Cleared, never appended to: the same ScriptableObject is rewritten on every apply
+            // cycle, and a mod left behind from the previous seed would keep firing on units built
+            // from this card. AddEntityMod keys on mod.name, so a stale one is not even visible as
+            // a duplicate — it simply becomes a second rule nobody asked for.
+            so.entityMods.Clear();
+            if (spec.Behaviour != null)
+                so.entityMods.Add(BehaviourMods.Build(spec.Behaviour, spec.Id));
         }
 
         static void SetLoca(string id, string name, string description)
