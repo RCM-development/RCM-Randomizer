@@ -286,6 +286,7 @@ namespace RCM_Randomizer
             }
 
             CapDegenerateCombos(roll);
+            EnsureSkillStaysCastable(roll, entityId);
 
             roll.PowerDelta = roll.Stats.Sum(s => s.Spec.Weight * (float)Math.Log(s.Multiplier));
 
@@ -317,6 +318,30 @@ namespace RCM_Randomizer
             AddCompensation(roll, entityId, Math.Min(0.5f, 0.15f * luck));
             roll.Label = BuildLabel(roll);
             return roll;
+        }
+
+        // A MaxMana nerf (or a SkillManaCost buff-gone-wrong) can push a unit's mana pool below its
+        // own skill's cost — a harvester shipped with a 30-mana skill and a 28-mana pool. That is
+        // not a nerf, it is a dead button: the skill can never be cast again. Rescale the offending
+        // stat just far enough that one full pool still affords one cast.
+        static void EnsureSkillStaysCastable(EntityRoll roll, string entityId)
+        {
+            try
+            {
+                float maxMana = EntityBalancingStore.MaxMana(entityId, returnOriginalValueFromBalancingFile: true);
+                float cost = EntityBalancingStore.SkillManaCost(entityId, returnOriginalValueFromBalancingFile: true);
+                if (maxMana <= 0f || cost <= 0f) return;
+
+                var manaStat = roll.Stats.FirstOrDefault(s => s.Spec.Value == EntityBalancingStore.ChangeableValue.MaxMana);
+                var costStat = roll.Stats.FirstOrDefault(s => s.Spec.Value == EntityBalancingStore.ChangeableValue.SkillManaCost);
+                float rolledMax = maxMana * (manaStat != null ? manaStat.Multiplier : 1f);
+                float rolledCost = cost * (costStat != null ? costStat.Multiplier : 1f);
+                if (rolledMax >= rolledCost) return;
+
+                if (manaStat != null) manaStat.Multiplier = rolledCost / maxMana * 1.02f;
+                else if (costStat != null) costStat.Multiplier = rolledMax / cost * 0.98f;
+            }
+            catch { }
         }
 
         // Whether a unit already owns an active skill. The balancing table's SkillType is only
