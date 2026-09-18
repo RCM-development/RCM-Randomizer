@@ -146,7 +146,8 @@ namespace RCM_Randomizer
         // tiny body never carries a huge gun. Entities left alone in their band keep their
         // stock turret (no map entry).
         public static Dictionary<string, string> GenerateDonorMap(int seed, IEnumerable<string> supportedEntities,
-                                                                  Func<string, float> sizeOf = null, float maxSizeRatio = 2.5f)
+                                                                  Func<string, float> sizeOf = null, float maxSizeRatio = 2.5f,
+                                                                  Func<string, bool> canDonate = null)
         {
             var bases = supportedEntities.Distinct().ToList();
             bases.Sort(StringComparer.Ordinal);
@@ -157,17 +158,23 @@ namespace RCM_Randomizer
             foreach (var band in SizeBands(bases, sizeOf, maxSizeRatio))
             {
                 if (band.Count < 2) continue;
-                var donors = new List<string>(band);
-                Shuffle(donors, rand);
-                for (int i = 0; i < band.Count; i++)
+                // Everyone can RECEIVE a turret, but not everyone can give one (a walker's
+                // "turret" is its torso). Pairing an unusable donor made the swap silently fall
+                // back to stock while the card kept the donor's name. Unusable donors are dropped
+                // here instead, and their would-be recipients draw from the usable pool - reused
+                // round-robin when it is smaller than the band.
+                var usable = canDonate == null ? new List<string>(band) : band.Where(canDonate).ToList();
+                if (usable.Count == 0) continue; // whole band stays stock
+                Shuffle(usable, rand);
+                int next = 0;
+                foreach (var baseId in band)
                 {
-                    if (donors[i] == band[i])
-                    {
-                        int j = (i + 1) % band.Count;
-                        (donors[i], donors[j]) = (donors[j], donors[i]);
-                    }
+                    string donor = usable[next % usable.Count];
+                    if (donor == baseId && usable.Count > 1) donor = usable[(next + 1) % usable.Count];
+                    if (donor == baseId) continue; // its only usable donor is itself: stock
+                    map[baseId] = donor;
+                    next++;
                 }
-                for (int i = 0; i < band.Count; i++) map[band[i]] = donors[i];
             }
             return map;
         }

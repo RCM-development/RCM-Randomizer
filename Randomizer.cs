@@ -308,6 +308,11 @@ namespace RCM_Randomizer
                 }
                 foreach (var id in EntityBalancingStore.EntityIds(isForSpecialists: true, inactive: false))
                     set.Add(id);
+                // the Support Tank carries "Specialist" as a ROLE, not the isForSpecialists flag -
+                // relying on the flag alone left it as the one starter that never varied
+                foreach (var id in EntityBalancingStore.AllEntityIdsHaving(UnitRole.Specialist, null,
+                             demoBlueprintsOnly: false, EntityBalancingStore.SpecialistFilter.All, inactive: false))
+                    set.Add(id);
                 set.RemoveWhere(id =>
                 {
                     try
@@ -656,7 +661,14 @@ namespace RCM_Randomizer
             // neither give nor receive turrets: filter it from the map and opt it out ("") so the
             // mixer's own per-spawn random skips it too
             var relevant = supported.Where(IsPlayerRelevant).ToList();
-            _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value);
+            // ask the mixer which entities can actually GIVE a turret (newer mixer builds expose
+            // CanDonate), so the map never pairs a donor the swap would refuse and rename-vs-stock
+            // mismatches cannot happen; older builds just skip the filter
+            Func<string, bool> canDonate = null;
+            var canDonateMethod = mixerType.GetMethod("CanDonate", BindingFlags.Public | BindingFlags.Static);
+            if (canDonateMethod != null)
+                canDonate = (Func<string, bool>)Delegate.CreateDelegate(typeof(Func<string, bool>), canDonateMethod);
+            _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value, canDonate);
             var map = _donorMap;
             selectorField.SetValue(null, new Func<string, string>(id =>
             {
