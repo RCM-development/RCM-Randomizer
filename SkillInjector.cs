@@ -28,6 +28,12 @@ namespace RCM_Randomizer
             public bool HighEnd;         // only rolls on Rare/UltraRare cards
             public int MinTier;          // progression tier the run must have unlocked
             public UnitRole RequiredRole = UnitRole.None; // e.g. Harvest Surge only fits harvesters
+            // The skill only sets a StatusEffect flag. Game CODE consumes exactly one status,
+            // Stun; every other one (Stealth, Taunt, Marked...) gets its behaviour from prefab
+            // data - handlers on units that natively use it, conditions in AI targeting. On an
+            // arbitrary unit the flag lands and nothing listens: Cloak was reported doing nothing.
+            // Such skills stay out of the pool unless explicitly enabled.
+            public bool FlagOnly;
             public float WeaponNerf = 1f; // caster archetype: own weapon damage multiplier (budget-credited)
             public Func<List<IEntityAction>> BuildActions;
             // Skills that depend on content we have to find at runtime (prefabs, donor actions)
@@ -38,6 +44,8 @@ namespace RCM_Randomizer
 
         // Set from config: the Hijack prototype is experimental (side switching) and ships off.
         public static bool EnableHijack;
+        // Set from config: offer skills that only set a status flag (see SkillSpec.FlagOnly).
+        public static bool IncludeFlagOnlySkills;
 
         // A mine is not a balancing entity we can name, so Minefield borrows a real mine layer's
         // own SpawnObject action: cloning it inherits whatever the game authored — the prefab or
@@ -353,7 +361,7 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "cloak", ShortName = "Cloak", ManaCost = 40f, Power = 0.15f,
+                Id = "cloak", ShortName = "Cloak", ManaCost = 40f, Power = 0.15f, FlagOnly = true,
                 Description = "Engage cloaking for 5 seconds.",
                 BuildActions = () => new List<IEntityAction>
                 {
@@ -370,7 +378,7 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "warcry", ShortName = "War Cry", ManaCost = 30f, Power = 0.12f,
+                Id = "warcry", ShortName = "War Cry", ManaCost = 30f, Power = 0.12f, FlagOnly = true,
                 Description = "Taunt: nearby enemies attack this unit for 5 seconds.",
                 BuildActions = () => new List<IEntityAction>
                 {
@@ -387,7 +395,7 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "mark", ShortName = "Mark", ManaCost = 30f, Power = 0.12f,
+                Id = "mark", ShortName = "Mark", ManaCost = 30f, Power = 0.12f, FlagOnly = true,
                 Description = "Mark the target enemy for 8 seconds.",
                 Target = TargetOrigin.ChosenEntity, SkillRange = 8, TargetEnemiesOnly = true,
                 BuildActions = () => new List<IEntityAction>
@@ -446,6 +454,7 @@ namespace RCM_Randomizer
         public static IReadOnlyList<RollEngine.SkillOption> Options =>
             Catalog.Where(s => (s.Id != "hijack" || EnableHijack)
                             && (s.IsAvailable == null || s.IsAvailable())
+                            && (!s.FlagOnly || IncludeFlagOnlySkills)
                             && Progression.IsUnlocked(s.MinTier))
             .Select(s => new RollEngine.SkillOption
             {
@@ -533,6 +542,7 @@ namespace RCM_Randomizer
                 };
 
             var skillEvent = new EntityEvent { @event = EntityController.Event.OnActivateSkill };
+            skillEvent.actions.Add(new SkillFiredMarker { skillId = spec.Id });
             skillEvent.actions.AddRange(actions);
             skillEvent.actions.Add(new MarkActiveSkill { marker = MarkActiveSkill.Marker.ExecuteNextCommandInChain });
             entity.events.Add(skillEvent);

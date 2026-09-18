@@ -60,6 +60,7 @@ namespace RCM_Randomizer
         ConfigEntry<int> _generatedHackCount;
         ConfigEntry<int> _generatedDropCount;
         ConfigEntry<bool> _enableHijack;
+        ConfigEntry<bool> _flagOnlySkills;
         ConfigEntry<bool> _shopTweaks;
         ConfigEntry<bool> _auraTweaks;
 
@@ -119,6 +120,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Seed-generated hacks (relics) added to the pools.", new AcceptableValueRange<int>(0, 10)));
             _generatedDropCount = Config.Bind("Drops", "GeneratedCount", 3,
                 new ConfigDescription("Seed-generated drops (existing drop behaviours with their own rolled numbers, filling the Rare shop slots).", new AcceptableValueRange<int>(0, 3)));
+            _flagOnlySkills = Config.Bind("Skills", "IncludeFlagOnlySkills", false,
+                "Offer Cloak, War Cry and Mark. They only set a status flag (Stealth, Taunt, Marked), and apart from Stun the game implements status effects in prefab data, not code - so on a unit that does not natively use that status the flag lands and nothing reacts. Off until each is proven to do something in play.");
             _enableHijack = Config.Bind("Skills", "EnableHijack", false,
                 "EXPERIMENTAL: the Hijack skill converts an enemy unit to your side via the game's own side-transition. Off until per-side bookkeeping is verified in-game.");
             _shopTweaks = Config.Bind("Shop", "SeededTweaks", true,
@@ -209,7 +212,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
+                string signature = $"{starters.Count}|{_flagOnlySkills.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -230,6 +233,7 @@ namespace RCM_Randomizer
 
                 RemoveRolls();
                 SkillInjector.EnableHijack = _enableHijack.Value;
+                SkillInjector.IncludeFlagOnlySkills = _flagOnlySkills.Value;
                 Progression.Enabled = _progression.Value;
                 RunPacing.Enabled = _runPacing.Value;
                 RunPacing.StartingFraction = _runPacingStart.Value;
@@ -884,16 +888,33 @@ namespace RCM_Randomizer
             return GetOrCreateProfileSeed();
         }
 
+        // The seed file sits BESIDE the profile folders ("Profiles/randomizerSeed_2.txt"), not
+        // inside one. It used to live in the profile folder, and deleting a profile in the game
+        // menu deletes that folder - so resetting a profile to start a fresh run silently rerolled
+        // every card, and the setup screen looked at a moment earlier no longer matched the run.
+        // A profile slot now keeps its rolls until the reroll button is pressed.
+        static string SeedFilePath()
+        {
+            string profileDir = ProfileManager.CurrentProfilePath.TrimEnd('\\', '/');
+            string profilesRoot = Path.GetDirectoryName(profileDir);
+            return Path.Combine(profilesRoot, "randomizerSeed_" + ProfileManager.CurrentProfileNumber + ".txt");
+        }
+
         int GetOrCreateProfileSeed()
         {
             try
             {
-                string path = Path.Combine(ProfileManager.CurrentProfilePath, SeedFileName);
+                string path = SeedFilePath();
                 if (File.Exists(path) && int.TryParse(File.ReadAllText(path).Trim(), out int existing))
                     return existing;
-                int seed = new System.Random().Next(int.MinValue, int.MaxValue);
+                // adopt a seed written by older builds into the profile folder itself
+                string legacy = Path.Combine(ProfileManager.CurrentProfilePath, SeedFileName);
+                int seed = File.Exists(legacy) && int.TryParse(File.ReadAllText(legacy).Trim(), out int old)
+                    ? old
+                    : new System.Random().Next(int.MinValue, int.MaxValue);
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
                 File.WriteAllText(path, seed.ToString());
+                RCMManager.Log($"Randomizer: profile {ProfileManager.CurrentProfileNumber} seed file created ({seed})");
                 return seed;
             }
             catch (Exception e)
@@ -907,8 +928,9 @@ namespace RCM_Randomizer
         {
             try
             {
-                string path = Path.Combine(ProfileManager.CurrentProfilePath, SeedFileName);
-                File.WriteAllText(path, new System.Random().Next(int.MinValue, int.MaxValue).ToString());
+                int seed = new System.Random().Next(int.MinValue, int.MaxValue);
+                File.WriteAllText(SeedFilePath(), seed.ToString());
+                RCMManager.Log($"Randomizer: reroll requested, new seed {seed}");
             }
             catch (Exception e) { RCMManager.Log("Randomizer: reroll failed (" + e.Message + ")"); }
             EnsureRollsCurrent();
