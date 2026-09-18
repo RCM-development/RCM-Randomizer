@@ -147,7 +147,8 @@ namespace RCM_Randomizer
         // stock turret (no map entry).
         public static Dictionary<string, string> GenerateDonorMap(int seed, IEnumerable<string> supportedEntities,
                                                                   Func<string, float> sizeOf = null, float maxSizeRatio = 2.5f,
-                                                                  Func<string, bool> canDonate = null)
+                                                                  Func<string, bool> canDonate = null,
+                                                                  Func<string, bool> canReceive = null)
         {
             var bases = supportedEntities.Distinct().ToList();
             bases.Sort(StringComparer.Ordinal);
@@ -169,6 +170,10 @@ namespace RCM_Randomizer
                 int next = 0;
                 foreach (var baseId in band)
                 {
+                    // a base the mixer will not touch (a ranged unit that aims with its whole
+                    // body would keep a visible gun that never fires) gets no pairing at all, so
+                    // it is neither renamed nor priced as a mix
+                    if (canReceive != null && !canReceive(baseId)) continue;
                     string donor = usable[next % usable.Count];
                     if (donor == baseId && usable.Count > 1) donor = usable[(next + 1) % usable.Count];
                     if (donor == baseId) continue; // its only usable donor is itself: stock
@@ -308,6 +313,7 @@ namespace RCM_Randomizer
             }
 
             CapDegenerateCombos(roll);
+            SnapWholeNumberStats(roll, entityId);
             EnsureSkillStaysCastable(roll, entityId);
 
             roll.PowerDelta = roll.Stats.Sum(s => s.Spec.Weight * (float)Math.Log(s.Multiplier));
@@ -346,6 +352,31 @@ namespace RCM_Randomizer
             AddCompensation(roll, entityId, Math.Min(0.5f, 0.15f * luck));
             roll.Label = BuildLabel(roll);
             return roll;
+        }
+
+        // Armor is a whole number everywhere in the stock game, and the unit's armor badge prints it
+        // with a bare ToString(): a rolled 2 -> 1.785235 showed up exactly like that next to the
+        // health bar. So a roll on such a stat is snapped until the RESULT is whole; when that lands
+        // back on the original value, the multiplier is 1 and the caller drops the roll.
+        public static float SnapToWholeResult(string entityId, EntityBalancingStore.ChangeableValue value, float multiplier)
+        {
+            if (value != EntityBalancingStore.ChangeableValue.ArmorProtection) return multiplier;
+            try
+            {
+                float original = EntityBalancingStore.ArmorProtection(entityId, returnOriginalValueFromBalancingFile: true);
+                if (original <= 0f) return 1f;
+                float snapped = (float)Math.Round(original * multiplier);
+                if (snapped < 1f) snapped = 1f;
+                return snapped / original;
+            }
+            catch { return 1f; }
+        }
+
+        static void SnapWholeNumberStats(EntityRoll roll, string entityId)
+        {
+            foreach (var stat in roll.Stats)
+                stat.Multiplier = SnapToWholeResult(entityId, stat.Spec.Value, stat.Multiplier);
+            roll.Stats.RemoveAll(s => Math.Abs(s.Multiplier - 1f) < 0.0001f);
         }
 
         // A MaxMana nerf (or a SkillManaCost buff-gone-wrong) can push a unit's mana pool below its

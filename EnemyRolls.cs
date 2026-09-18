@@ -51,6 +51,7 @@ namespace RCM_Randomizer
                     double u = rand.NextDouble() * 2.0 - 1.0 + upwardBias;
                     if (u > 1.0) u = 1.0;
                     float multiplier = (float)Math.Exp(u * logMax);
+                    multiplier = RollEngine.SnapToWholeResult(entityId, value, multiplier); // whole armor
                     if (Math.Abs(multiplier - 1f) < 0.03f) continue;
 
                     changes.Add(RandomizerChangeFactory.Multiply(value, multiplier, entityId));

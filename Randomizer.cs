@@ -71,6 +71,7 @@ namespace RCM_Randomizer
         string _appliedConfigSignature;
         string _turretStatus = "off";
         bool _loggedOffMode;
+        bool _loggedWaitingForStores;
         Dictionary<string, string> _donorMap;
 
         static Randomizer _instance;
@@ -185,6 +186,22 @@ namespace RCM_Randomizer
                     return;
                 }
                 _loggedOffMode = false;
+
+                // The first scene of a session loads before the game's Balancing object has handed
+                // the upgrade / relic / engineer / economy / specialist tables to their stores.
+                // Applying then rolled the entity cards, threw on the first missing table and left
+                // a half-applied cycle behind ("Randomizer error" in every session's log). Nothing
+                // is on screen yet, so wait: the next scene load runs this again.
+                if (!BalancingStoresReady())
+                {
+                    if (!_loggedWaitingForStores)
+                    {
+                        _loggedWaitingForStores = true;
+                        RCMManager.Log("Randomizer: balancing tables not loaded yet, applying as soon as they are");
+                        StartCoroutine(ApplyWhenStoresReady());
+                    }
+                    return;
+                }
 
                 int seed = CurrentSeed();
                 // A run keeps the seed it started with - and so does the run-SETUP screen. The
@@ -656,6 +673,36 @@ namespace RCM_Randomizer
 
         // ---- Turret shuffle (soft integration with RCM_UnitsMixNMatch) ------------------------
 
+        // Not every session gets another scene load after the tables arrive, so poll briefly rather
+        // than rely on one. Gives up after a minute: by then something else is wrong.
+        System.Collections.IEnumerator ApplyWhenStoresReady()
+        {
+            for (int i = 0; i < 240 && !BalancingStoresReady(); i++)
+                yield return new WaitForSecondsRealtime(0.25f);
+            if (BalancingStoresReady()) EnsureRollsCurrent();
+        }
+
+        static bool BalancingStoresReady()
+        {
+            try
+            {
+                return UpgradeBalancingStore._upgradeBalancingScriptableObject != null
+                    && RelicBalancingStore._relicBalancingScriptableObject != null
+                    && EngineerBalancingStore._engineerBalancingScriptableObject != null
+                    && EconomyBalancingStore._economyBalancingScriptableObject != null
+                    && SpecialistBalancingStore._specialistBalancingScriptableObject != null;
+            }
+            catch { return false; }
+        }
+
+        // Optional static bool(string) on the mixer, bound by name: newer mixer builds answer what
+        // a unit can give or receive, older ones simply lack the method and the filter is skipped.
+        static Func<string, bool> MixerPredicate(Type mixerType, string name)
+        {
+            var method = mixerType.GetMethod(name, BindingFlags.Public | BindingFlags.Static);
+            return method == null ? null : (Func<string, bool>)Delegate.CreateDelegate(typeof(Func<string, bool>), method);
+        }
+
         void UpdateTurretShuffle(int seed)
         {
             var mixerType = AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
@@ -695,11 +742,9 @@ namespace RCM_Randomizer
             // ask the mixer which entities can actually GIVE a turret (newer mixer builds expose
             // CanDonate), so the map never pairs a donor the swap would refuse and rename-vs-stock
             // mismatches cannot happen; older builds just skip the filter
-            Func<string, bool> canDonate = null;
-            var canDonateMethod = mixerType.GetMethod("CanDonate", BindingFlags.Public | BindingFlags.Static);
-            if (canDonateMethod != null)
-                canDonate = (Func<string, bool>)Delegate.CreateDelegate(typeof(Func<string, bool>), canDonateMethod);
-            _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value, canDonate);
+            Func<string, bool> canDonate = MixerPredicate(mixerType, "CanDonate");
+            Func<string, bool> canReceive = MixerPredicate(mixerType, "CanReceive");
+            _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value, canDonate, canReceive);
             var map = _donorMap;
             selectorField.SetValue(null, new Func<string, string>(id =>
             {
