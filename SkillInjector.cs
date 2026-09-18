@@ -64,6 +64,8 @@ namespace RCM_Randomizer
             catch { return false; }
         }
 
+        const float MineLifetimeSeconds = 180f; // mana refills at 0.2/s, so a 40 MP cast returns in ~200 s: one field at a time per caster
+
         static SkillSpec MineSkill(string id, string name, string description, string mineEntityId, int count,
                                    float manaCost, float power, int minTier)
         {
@@ -85,6 +87,10 @@ namespace RCM_Randomizer
                             // a mine is not an army unit: it must neither take a unit-cap slot
                             // nor hand one back when it goes off
                             s.ignoreUnitCapAlthoughNoSpawn = true;
+                            // unattended fields otherwise pile up for the whole battle: every cast is permanent
+                            // area denial, and mana comes back on its own
+                            s.timeToLiveSource = EntityActionDuration.MultipleEntitySource.One;
+                            s.timeToLiveMultiplier = MineLifetimeSeconds;
                         }));
                     return actions;
                 }
@@ -107,10 +113,13 @@ namespace RCM_Randomizer
         // v1: self-targeted skills only — no targeting cursor, no skill aiming, minimal risk.
         public static readonly List<SkillSpec> Catalog = new List<SkillSpec>
         {
-            MineSkill("minefield", "Minefield", "Scatter 4 heavy mines at the target location.", "LargeMine", 4, 45f, 0.20f, 1),
-            MineSkill("firemines", "Fire Mines", "Scatter 4 incendiary mines at the target location.", "FireMine", 4, 45f, 0.20f, 1),
-            MineSkill("stunmines", "Stun Mines", "Scatter 3 stun mines at the target location.", "StunMine", 3, 40f, 0.18f, 1),
-            MineSkill("clustermines", "Cluster Mines", "Scatter 6 light mines at the target location.", "CrawlMine", 6, 40f, 0.18f, 1),
+            // Count runs AGAINST the mine's punch (LargeMine 60 dmg, FireMine 40 + burn, StunMine 10 + 5s stun,
+            // CrawlMine 20), so every field is worth roughly the same ~120 damage and heavy mines are the
+            // few-but-deadly option. 4 heavies per cast made any starter carrying them a one-unit defence.
+            MineSkill("minefield", "Minefield", "Lay 2 heavy mines at the target location. Mines last 3 minutes.", "LargeMine", 2, 50f, 0.22f, 1),
+            MineSkill("firemines", "Fire Mines", "Scatter 3 incendiary mines at the target location. Mines last 3 minutes.", "FireMine", 3, 50f, 0.22f, 1),
+            MineSkill("stunmines", "Stun Mines", "Lay 2 stun mines at the target location. Mines last 3 minutes.", "StunMine", 2, 45f, 0.18f, 1),
+            MineSkill("clustermines", "Cluster Mines", "Scatter 5 light mines at the target location. Mines last 3 minutes.", "CrawlMine", 5, 40f, 0.18f, 1),
             new SkillSpec
             {
                 Id = "reanimate", ShortName = "Reanimate", ManaCost = 50f, Power = 0.22f, HighEnd = true, MinTier = 3,
@@ -172,8 +181,8 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "repair", ShortName = "Field Repair", ManaCost = 40f, Power = 0.15f,
-                Description = "Emergency repairs: restore 35% of maximum health.",
+                Id = "repair", ShortName = "Field Repair", ManaCost = 50f, Power = 0.18f,
+                Description = "Emergency repairs: restore 25% of maximum health.",
                 BuildActions = () => new List<IEntityAction>
                 {
                     new Heal
@@ -182,7 +191,7 @@ namespace RCM_Randomizer
                         whoWillBeHealed = EventPayload.EntityChoiceIncludingOperatingOnes.OperatingEntities,
                         takenFrom = EventPayload.EntityChoiceIncludingOperatingOnes.OperatingEntities,
                         healAmount = EventPayload.CalculationParameter.MaxHealth,
-                        multiplier = 0.35f,
+                        multiplier = 0.25f,
                     },
                 }
             },
@@ -411,6 +420,10 @@ namespace RCM_Randomizer
         }
 
         public static void ClearAssignments() { Assigned.Clear(); ForceReplaced.Clear(); }
+
+        // the rolled skill of a run-start unit whose STOCK skill was swapped out, else null
+        public static SkillSpec ReplacedSkillOf(string entityId)
+            => ForceReplaced.Contains(entityId) && Assigned.TryGetValue(entityId, out string skillId) ? Get(skillId) : null;
 
         // The skill tooltip resolves Loca.SkillDescription(entityId); keys must be lowercased
         // (Loca.Translate lowercases ids). Re-applied via ReapplyDescriptions after the game

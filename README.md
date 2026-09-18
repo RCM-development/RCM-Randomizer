@@ -28,7 +28,7 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 - **Generated content**: upgrade cards (`GeneratedUpgrades.cs`, four templates including behaviour rules from `BehaviourMods.cs`), hacks (`GeneratedHacks.cs`) and drops (`GeneratedDrops.cs`) are appended to the game's own registries with seed-independent ids, and only ever switched inactive, never removed.
 - **Progression** (`Progression.cs`, `RunPacing.cs`): generated content carries a tier that becomes its `neededExperienceLevel` and is also checked against a ladder of experience, ascension, heat and difficulty; within a run, blueprint rewards open from the cheap end of each rarity band. Enemies are never gated.
 - **Roof turrets** (`RoofTurrets.cs`): tanks and vehicles can roll a second, independently firing weapon, built the way the game builds its own two-gun tanks - a child turret entity registered with `RegisterChildController`. Priced into the budget, player units only, and seated on the card model by the same local-space routine as in the world.
-- Also: enemy stat rolls that escalate per level (`EnemyRolls.cs`), captured enemy turrets as blueprints, a seeded engineer trait (`EngineerTraits.cs`), shop sales and rarity bumps (`ShopTweaks.cs`), support-aura variance (`AuraTweaks.cs`), multi-tier veterancy with chevrons and rising rank cost (`Veterancy.cs`).
+- Also: enemy stat rolls that escalate per level (`EnemyRolls.cs`), captured enemy turrets as blueprints, a seeded engineer trait (`EngineerTraits.cs`), shop sales and rarity bumps (`ShopTweaks.cs`), support-aura variance (`AuraTweaks.cs`), multi-tier veterancy (`Veterancy.cs`): kill credits on a rising price, a per-rank bonus, and the rank drawn in the veteran icon slot (bronze, silver, gold, then stacked gold chevrons); specialist hack trees refitted to a swapped starter skill (`SpecialistHacks.cs`).
 
 ## Reading the log
 
@@ -40,10 +40,13 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 - `Randomizer: roof turrets -> Unit+Turret, …` / `roof turret X mounted on Y` — who rolled a second gun, and that it actually spawned.
 - `structural check <unit>: pivot/unit footprint x, rest/pivot volume y -> TORSO|turret` — the mixer's measurement behind a mounting decision, once per unit. Off by default; enable `Diagnostics.VerboseLog` in `RCM.plugins.mixnmatch.cfg`.
 - `seed change (a -> b) deferred until back in the plain menu` — a reroll arrived while it could not be applied.
+- `specialist hacks refitted to rolled skills -> Unit(Skill) xN` — which specialists had their hack tree rewritten for a swapped skill.
+- `<unit> reached rank n/5 (gold)` — a player unit ranked up.
+- `Diagnostics.DumpPrefabFacts = true` writes `BepInEx\RandomizerProbe.txt`: per unit the range its selection circle draws, its target identifiers and events, every rank source, the specialist hacks as applied, and the health bar layout. This is what balance and UI fixes are checked against.
 
 ## Status
 
-Version 0.9.0, the first release; see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills and the setup-screen/run consistency. Generated upgrades, hacks, drops, shop tweaks and veterancy have run without errors but have had little deliberate testing. Analysis and roadmap: `docs/balance-analysis.md`.
+Version 0.9.1 (0.9.0 was the first release); see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills and the setup-screen/run consistency. Generated upgrades, hacks, drops, shop tweaks and veterancy have run without errors but have had little deliberate testing. Analysis and roadmap: `docs/balance-analysis.md`.
 
 ## Install
 

@@ -43,7 +43,7 @@ namespace RCM_Randomizer
             new Spec
             {
                 Id = "vampiric", Label = "Vampiric", Power = 0.16f,
-                Description = "Restores 15 percent of maximum health on every kill.",
+                Description = "Restores 10 percent of maximum health on every kill.",
                 Trigger = EntityController.Event.OnHasKilledEntity,
                 BuildAction = () => new Heal
                 {
@@ -51,7 +51,7 @@ namespace RCM_Randomizer
                     whoWillBeHealed = EventPayload.EntityChoiceIncludingOperatingOnes.OperatingEntities,
                     takenFrom = EventPayload.EntityChoiceIncludingOperatingOnes.OperatingEntities,
                     healAmount = EventPayload.CalculationParameter.MaxHealth,
-                    multiplier = 0.15f,
+                    multiplier = 0.10f,
                 },
             },
             new Spec
@@ -61,20 +61,14 @@ namespace RCM_Randomizer
                 Trigger = EntityController.Event.OnHasKilledEntity,
                 BuildAction = () => Timed(EntityController.ChangeableValue.AttackCooldown, -0.25f, 6f, "rcmModAdrenaline"),
             },
-            // Multi-tier veterancy. The stock game ranks a unit up on kills but only pays out at the
-            // final rank, all at once. Here every rank is worth something, because the bonus is
-            // scaled BY CurrentRank through the game's own ValueToAddSource — one unlimited,
-            // non-stackable change per stat that is rewritten at each rank rather than accumulating
-            // stacks. Veterancy.cs draws a chevron per rank so the ladder is legible on the field.
-            // This deliberately does NOT hand out ranks. Stock prefabs already author their own
-            // RankUp on OnHasKilledEntity - that is the game's "kill five enemies" veterancy - so
-            // adding a second one meant two ranks per kill and the whole ladder climbed in a blur.
-            // What the upgrade changes is the PAYOUT: stock veterancy pays once at the final rank,
-            // this pays at every rank, scaled by the rank itself.
+            // Veteran card: a bigger payout per rank. Ranks themselves are earned and paid by Veterancy.cs
+            // (kill credits on a rising price, 4 percent damage and health per rank for everyone); this
+            // adds to that through the same rank-scaled, non-stacking value change. It does NOT grant
+            // ranks - a second source per kill is how the ladder once climbed two ranks at a time.
             new Spec
             {
                 Id = "veteran", Label = "Veteran", Power = 0.24f,
-                Description = "Every rank of veterancy is worth 8 percent damage and half a point of armor, instead of paying out only at the last one.",
+                Description = "Every rank of veterancy is worth an extra 8 percent damage and half a point of armor.",
                 BuildEvents = () => new List<EntityEvent>
                 {
                     Event(EntityController.Event.OnRankChanged,
@@ -140,7 +134,7 @@ namespace RCM_Randomizer
             },
         };
 
-        static EntityEvent Event(EntityController.Event trigger, params IEntityAction[] actions)
+        internal static EntityEvent Event(EntityController.Event trigger, params IEntityAction[] actions)
         {
             var entityEvent = new EntityEvent { @event = trigger };
             entityEvent.actions.AddRange(actions);
@@ -151,7 +145,7 @@ namespace RCM_Randomizer
         // stackable and always the same originator id, so each rank REPLACES the previous grant
         // instead of piling stacks on top of one another — the bonus tracks the rank exactly, and
         // it falls back to nothing when Init resets the rank to zero.
-        static ChangeSpecificValue RankScaled(EntityController.ChangeableValue value, SpecificValueChange.AddType addType, float multiplier, string originator) =>
+        internal static ChangeSpecificValue RankScaled(EntityController.ChangeableValue value, SpecificValueChange.AddType addType, float multiplier, string originator) =>
             new ChangeSpecificValue
             {
                 operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,

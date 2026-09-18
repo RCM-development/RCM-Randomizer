@@ -2,150 +2,211 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace RCM_Randomizer
 {
-    // The game already tracks ranks: EntityController.CurrentRank climbs from 0 to MaxRank, and
-    // stock units rank up on kills. But only the LAST rank is ever acknowledged — RankUp shows
-    // baseParameters.veteranIconGameObject when CurrentRank == MaxRank, and the intermediate ranks
-    // pass silently. So a unit two kills from veterancy looks exactly like one that has never
-    // fought.
+    // Multi-tier veterancy, Warzone 2100 style. What the stock game actually has (read off the
+    // prefabs with Diagnostics.DumpPrefabFacts, not assumed): a CurrentRank counter from 0 to
+    // MaxRank on every entity and one icon that lights at the last rank - and nothing else. No unit
+    // prefab, prefab mod or start mod ever calls RankUp, and the only thing that reacts to a rank
+    // is one upgrade card. So out of the box units neither earn ranks nor gain from them.
     //
-    // This turns that hidden counter into a visible ladder, Warzone 2100 style: one chevron per
-    // rank, drawn by cloning the game's own veteran icon rather than authoring new art, so the
-    // marks sit in the same canvas at the same size and inherit whatever styling the icon has.
-    //
-    // The bonuses that go with the ladder are NOT here. Those ride the game's own action system,
-    // scaled by CurrentRank, in the veteran behaviour mod.
+    // This supplies the whole ladder:
+    //   earning - kills bank credits, weighted by what the victim was worth, and rank N costs
+    //             RankCost * N credits, so each rank is slower than the last;
+    //   payout  - a small permanent bonus per rank, through the game's own rank-scaled value
+    //             change (one mod on OnRankChanged, rewritten at each rank, never stacking);
+    //   display - the rank is drawn INSIDE the game's veteran icon slot. That slot is a child of a
+    //             HorizontalLayoutGroup (icon, elite star, bars, armor badge); 0.9.0 cloned the slot
+    //             itself, the layout group appended the clone after the armor badge, and the second
+    //             chevron appeared at the far end of the health bar.
     public static class Veterancy
     {
         public static bool Enabled;
-        public static int MaxChevrons = 5;
+        public static bool EarnFromKills = true;
+        public static float BonusPerRank = 0.04f;   // damage and max health, per rank
 
-        // Stock ranking is flat: one kill, one rank, so the last rank costs exactly what the first
-        // did even though it is worth far more. Ranks are now bought with kill credits on a rising
-        // price, which also absorbs duplicate RankUp sources (two cards granting ranks no longer
-        // multiply the rate, they just fill the same meter twice as fast).
+        // rank N costs RankCost * N credits; a 100-credit victim is one credit
         public static bool EscalatingRanks = true;
-        public static float RankCost = 2f; // rank N costs RankCost * N kills: 2, 4, 6, 8, 10
+        public static float RankCost = 2f;
 
-        const string ChevronPrefix = "rcmChevron";
+        const string MarkPrefix = "rcmRankMark";
+        const string ModName = "rcmmod_veterancy";
+        const string LocaKey = "rcm_randomizer_veterancy";
+        const int Tiers = 5;
 
-        // instance id -> kill credits banked toward the next rank
+        // Colour carries the first three ranks, stacking the last two: at the icon's size on the
+        // field (about a dozen pixels) colour reads instantly and three tiny marks side by side
+        // do not. bronze, silver, gold, then a second and third gold chevron stacked upward.
+        static readonly Color Bronze = new Color(0.80f, 0.50f, 0.28f, 1f);
+        static readonly Color Silver = new Color(0.82f, 0.86f, 0.92f, 1f);
+        static readonly Color Gold = new Color(1.00f, 0.80f, 0.22f, 1f);
+        static readonly Color[] TierColor = { Bronze, Silver, Gold, Gold, Gold };
+        static readonly int[] TierMarks = { 1, 1, 1, 2, 3 };
+
+        // instance id -> credits banked toward the next rank
         static readonly Dictionary<int, float> Credits = new Dictionary<int, float>();
+        static bool _grantingFromCredits;
+        static EntityModScriptableObject _bonusMod;
 
         static float CostOf(int rank) => RankCost * Math.Max(1, rank);
 
-        // Entities we have actually built chevrons for. Without this, hiding stale chevrons would
-        // mean a Find() sweep at every spawn for every unit, including the vast majority that will
-        // never rank up at all.
-        static readonly HashSet<int> WithChevrons = new HashSet<int>();
+        public static string Describe(int rank) => rank <= 0 ? "unranked" : new[] { "bronze", "silver", "gold", "double gold", "triple gold" }[Math.Min(rank, Tiers) - 1];
+
+        static int TierOf(EntityController entity)
+        {
+            int max = entity.MaxRank;
+            if (max <= 0 || entity.CurrentRank <= 0) return 0;
+            // units with a shorter ladder still end on the top tier
+            return Mathf.Clamp(Mathf.CeilToInt(entity.CurrentRank * (float)Tiers / max), 1, Tiers);
+        }
+
+        static void AddCredits(EntityController entity, float amount)
+        {
+            int max = entity.MaxRank;
+            if (max <= 0 || entity.CurrentRank >= max) return;
+
+            int id = entity.GetInstanceID();
+            Credits.TryGetValue(id, out float credits);
+            credits += amount;
+
+            int rank = entity.CurrentRank, granted = 0;
+            while (rank + granted < max && credits >= CostOf(rank + granted + 1))
+            {
+                credits -= CostOf(rank + granted + 1);
+                granted++;
+            }
+            Credits[id] = credits;
+            if (granted <= 0) return;
+
+            _grantingFromCredits = true;
+            try { entity.RankUp(granted); }
+            finally { _grantingFromCredits = false; }
+        }
+
+        static float KillValue(EntityController victim)
+        {
+            try
+            {
+                float cost = EntityBalancingStore.Cost(victim.entityId, returnOriginalValueFromBalancingFile: true);
+                return Mathf.Clamp(cost / 100f, 0.25f, 2.5f); // swarm spawns count a quarter, a capital unit 2.5
+            }
+            catch { return 1f; }
+        }
+
+        static EntityModScriptableObject BonusMod()
+        {
+            if (_bonusMod != null) return _bonusMod;
+            var mod = ScriptableObject.CreateInstance<EntityModScriptableObject>();
+            mod.name = ModName;
+            mod.entityIdentifiers = new List<EntityIdentifier>();
+            mod.events = new List<EntityEvent>
+            {
+                BehaviourMods.Event(EntityController.Event.OnRankChanged,
+                    BehaviourMods.RankScaled(EntityController.ChangeableValue.Damage, SpecificValueChange.AddType.Relative, BonusPerRank, "rcmVeterancyDamage"),
+                    BehaviourMods.RankScaled(EntityController.ChangeableValue.MaxHealth, SpecificValueChange.AddType.Relative, BonusPerRank, "rcmVeterancyHealth")),
+            };
+            return _bonusMod = mod;
+        }
+
+        // the bonus size is baked into the mod's actions, so a config change needs a new asset
+        public static void Configure(float bonusPerRank)
+        {
+            if (Math.Abs(bonusPerRank - BonusPerRank) < 0.0001f) return;
+            BonusPerRank = bonusPerRank;
+            _bonusMod = null;
+        }
 
         static void Refresh(EntityController entity)
         {
             if (!Enabled) return;
             var baseParams = entity.baseParameters;
-            var icon = baseParams != null ? baseParams.veteranIconGameObject : null;
-            if (icon == null) return;
+            var slot = baseParams != null ? baseParams.veteranIconGameObject : null;
+            if (slot == null) return;
 
-            int shown = Math.Max(0, Math.Min(entity.CurrentRank, MaxChevrons));
+            int tier = TierOf(entity);
+            slot.SetActive(tier >= 1);
+            if (tier < 1) return;
 
-            // the stock icon becomes chevron one; the game only ever lit it at max rank
-            icon.SetActive(shown >= 1);
+            Image first = null;
+            foreach (var image in slot.GetComponentsInChildren<Image>(true))
+                if (!image.name.StartsWith(MarkPrefix, StringComparison.Ordinal)) { first = image; break; }
+            if (first == null) return;
 
-            var parent = icon.transform.parent;
-            if (parent == null) return;
-            int parentId = parent.gameObject.GetInstanceID();
-            if (shown < 2 && !WithChevrons.Contains(parentId)) return; // nothing built, nothing to hide
-
-            for (int i = 2; i <= MaxChevrons; i++)
+            first.color = TierColor[tier - 1];
+            int marks = TierMarks[tier - 1];
+            for (int i = 2; i <= 3; i++)
             {
-                if (shown >= i)
+                var existing = slot.transform.Find(MarkPrefix + i);
+                if (i > marks)
                 {
-                    var chevron = EnsureChevron(parent, icon, i);
-                    if (chevron != null)
-                    {
-                        chevron.SetActive(true);
-                        WithChevrons.Add(parentId);
-                    }
-                }
-                else
-                {
-                    var existing = parent.Find(ChevronPrefix + i);
                     if (existing != null) existing.gameObject.SetActive(false);
+                    continue;
                 }
+                var mark = existing != null ? existing.gameObject : CreateMark(slot.transform, first, i);
+                mark.SetActive(true);
+                var markImage = mark.GetComponent<Image>();
+                if (markImage != null) markImage.color = TierColor[tier - 1];
             }
         }
 
-        static GameObject EnsureChevron(Transform parent, GameObject template, int index)
+        static GameObject CreateMark(Transform slot, Image template, int index)
         {
-            string name = ChevronPrefix + index;
-            var existing = parent.Find(name);
-            if (existing != null) return existing.gameObject;
-
-            var clone = UnityEngine.Object.Instantiate(template, parent);
-            clone.name = name;
-            Offset(template, clone, index);
+            var clone = UnityEngine.Object.Instantiate(template.gameObject, slot);
+            clone.name = MarkPrefix + index;
+            var from = template.rectTransform;
+            var to = clone.GetComponent<RectTransform>();
+            // the slot is a fixed 1.4 x 1.4 cell and is not itself a layout group, so positions
+            // inside it hold. rect can still be zero before the first layout pass.
+            float height = from.rect.height > 0.01f ? from.rect.height : 1.27f;
+            to.anchoredPosition = from.anchoredPosition + new Vector2(0f, height * 0.55f * (index - 1));
             return clone;
         }
 
-        // The icon lives in the unit's world-space bar canvas, so it is normally a RectTransform and
-        // its own width gives the spacing. The plain-transform path is a fallback for prefabs that
-        // hang the icon off something else.
-        static void Offset(GameObject template, GameObject clone, int index)
+        [HarmonyPatch(typeof(EntityController), "OnHasKilledEntity")]
+        static class Patch_OnHasKilledEntity
         {
-            var from = template.GetComponent<RectTransform>();
-            var to = clone.GetComponent<RectTransform>();
-            if (from != null && to != null)
+            static void Postfix(EntityController __instance, EntityController entityThatWillBeDestroyed)
             {
-                float step = Mathf.Max(6f, from.sizeDelta.x * 1.15f);
-                to.anchoredPosition = from.anchoredPosition + new Vector2(step * (index - 1), 0f);
-                return;
+                if (!Enabled || !EarnFromKills || entityThatWillBeDestroyed == null) return;
+                try
+                {
+                    // a roof turret is a child entity: its kills belong to the tank carrying it
+                    var earner = __instance.Parent != null ? __instance.Parent : __instance;
+                    AddCredits(earner, KillValue(entityThatWillBeDestroyed));
+                }
+                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy credit failed (" + e.Message + ")"); }
             }
-            clone.transform.localPosition = template.transform.localPosition + new Vector3(0.22f * (index - 1), 0f, 0f);
         }
 
         [HarmonyPatch(typeof(EntityController), "RankUp")]
         static class Patch_RankUp
         {
-            // Converts each granted rank into credits and only lets a rank through once the rising
-            // price is paid. Returning false banks the progress without a rank change, so
-            // OnRankChanged correctly does not fire.
-            static bool Prefix(EntityController __instance, ref int amount)
+            // A rank handed out by a card's own RankUp action goes through the same meter as a
+            // kill instead of skipping the rising price. Returning false banks it without a rank
+            // change, so OnRankChanged correctly does not fire.
+            static bool Prefix(EntityController __instance, int amount)
             {
-                if (!Enabled || !EscalatingRanks || amount <= 0) return true;
-                try
-                {
-                    int id = __instance.GetInstanceID();
-                    Credits.TryGetValue(id, out float credits);
-                    credits += amount;
-
-                    int rank = __instance.CurrentRank;
-                    int maxRank = __instance.MaxRank;
-                    int granted = 0;
-                    while (rank + granted < maxRank && credits >= CostOf(rank + granted + 1))
-                    {
-                        credits -= CostOf(rank + granted + 1);
-                        granted++;
-                    }
-
-                    Credits[id] = credits;
-                    if (granted <= 0) return false;
-                    amount = granted;
-                    return true;
-                }
+                if (!Enabled || !EscalatingRanks || _grantingFromCredits || amount <= 0) return true;
+                try { AddCredits(__instance, amount); return false; }
                 catch { return true; } // never swallow a rank because our accounting broke
             }
 
             static void Postfix(EntityController __instance)
             {
-                try { Refresh(__instance); }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy chevrons failed (" + e.Message + ")"); }
+                try
+                {
+                    Refresh(__instance);
+                    if (_grantingFromCredits && __instance.IsControlledByPlayer)
+                        TestMod.RCMManager.Log($"Randomizer: {__instance.entityId} reached rank {__instance.CurrentRank}/{__instance.MaxRank} ({Describe(TierOf(__instance))})");
+                }
+                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy display failed (" + e.Message + ")"); }
             }
         }
 
-        // Init resets CurrentRank to 0, and pooled instances keep the chevrons we cloned onto them,
-        // so a reused body would otherwise start its next life wearing its previous rank.
+        // Init resets CurrentRank to 0 and pooled bodies are reused, so credits and marks from a
+        // previous life must not carry over; the bonus mod is (re)attached here as well.
         [HarmonyPatch(typeof(EntityController), "Init")]
         static class Patch_Init
         {
@@ -153,12 +214,15 @@ namespace RCM_Randomizer
             {
                 try
                 {
-                    // pooled bodies are reused, so banked credits must not survive into the next life
                     Credits.Remove(__instance.GetInstanceID());
                     Refresh(__instance);
+                    if (Enabled && BonusPerRank > 0f && __instance.MaxRank > 0)
+                        __instance.AddEntityMod(BonusMod(), new CardId(CardId.CardType.GlobalLocaId, LocaKey));
                 }
                 catch { }
             }
         }
+
+        public const string TooltipLocaKey = LocaKey;
     }
 }

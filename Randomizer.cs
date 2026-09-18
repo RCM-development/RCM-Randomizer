@@ -29,7 +29,7 @@ namespace RCM_Randomizer
         const string IDENTIFIER = "RCM.plugins.randomizer";
         const string SeedFileName = "randomizerSeed.txt";
         // keep in step with <Version> in RCM_Randomizer.csproj (BepInPlugin needs a constant)
-        public const string Version = "0.9.0";
+        public const string Version = "0.9.1";
 
         public enum Mode { Off, PerSave, PerRun }
 
@@ -55,6 +55,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _runPacing;
         ConfigEntry<bool> _veterancyChevrons;
         ConfigEntry<float> _veterancyRankCost;
+        ConfigEntry<float> _veterancyBonus;
         ConfigEntry<float> _runPacingStart;
         ConfigEntry<bool> _rollHacks;
         ConfigEntry<int> _generatedUpgradeCount;
@@ -64,6 +65,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _enableHijack;
         ConfigEntry<bool> _flagOnlySkills;
         ConfigEntry<bool> _roofTurrets;
+        ConfigEntry<bool> _dumpPrefabFacts;
         ConfigEntry<bool> _shopTweaks;
         ConfigEntry<bool> _auraTweaks;
 
@@ -124,6 +126,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Seed-generated hacks (relics) added to the pools.", new AcceptableValueRange<int>(0, 10)));
             _generatedDropCount = Config.Bind("Drops", "GeneratedCount", 3,
                 new ConfigDescription("Seed-generated drops (existing drop behaviours with their own rolled numbers, filling the Rare shop slots).", new AcceptableValueRange<int>(0, 3)));
+            _dumpPrefabFacts = Config.Bind("Diagnostics", "DumpPrefabFacts", false,
+                "Write BepInEx/RandomizerProbe.txt once per session: for every rolled unit the range its selection circle draws, its target identifiers and events, plus specialist hacks and the health bar layout. Read straight off the prefabs; for bug reports and development.");
             _roofTurrets = Config.Bind("TurretShuffle", "RoofTurrets", true,
                 "Tanks and vehicles can roll a roof turret: a second weapon that aims and fires on its own, built the way the game builds its own two-gun tanks (a child turret entity). Priced into the card's cost, shown on the card model, player units only, unlocked from progression tier 1.");
             _flagOnlySkills = Config.Bind("Skills", "IncludeFlagOnlySkills", false,
@@ -141,12 +145,15 @@ namespace RCM_Randomizer
             _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
                 new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
             _veterancyChevrons = Config.Bind("Progression", "VeterancyChevrons", true,
-                "Show one chevron per rank above units, cloned from the game's own veteran icon. The stock game tracks ranks but only lights the icon at the final one, so partial progress is invisible.");
+                "Multi-tier veterancy: units earn ranks from kills and show the rank in the veteran icon slot left of their health bar - bronze, silver, gold, then a second and a third gold chevron stacked on top. The stock game has the rank counter and the icon but nothing that ever earns or pays a rank.");
             Veterancy.Enabled = _veterancyChevrons.Value;
             _veterancyRankCost = Config.Bind("Progression", "VeterancyKillsPerRank", 2f,
-                new ConfigDescription("Kills the FIRST rank costs; rank N costs this many times N, so each rank is slower than the last (2 = 2, 4, 6, 8, 10). Stock ranking is flat, which made the last rank as cheap as the first. 0 restores flat stock ranking.", new AcceptableValueRange<float>(0f, 10f)));
+                new ConfigDescription("Kill credits the FIRST rank costs; rank N costs this many times N, so each rank is slower than the last (2 = 2, 4, 6, 8, 10: 30 in total). A kill is worth the victim's cost / 100, between 0.25 and 2.5, so swarm spawns barely count and capital units count double. 0 = ranks are only granted by cards, unmetered.", new AcceptableValueRange<float>(0f, 10f)));
             Veterancy.RankCost = _veterancyRankCost.Value;
             Veterancy.EscalatingRanks = _veterancyRankCost.Value > 0f;
+            _veterancyBonus = Config.Bind("Progression", "VeterancyBonusPerRank", 0.04f,
+                new ConfigDescription("Damage and max health a unit gains per rank (0.04 = 4 percent, 20 percent at the fifth rank). Both sides earn it. 0 = ranks are cosmetic unless a card pays them.", new AcceptableValueRange<float>(0f, 0.2f)));
+            Veterancy.Configure(_veterancyBonus.Value);
             _runPacing = Config.Bind("Progression", "PaceBlueprintsWithinRun", true,
                 "Within a run, blueprint rewards start at the cheap end of each rarity band and the ceiling rises as the run progresses, so the expensive units arrive later instead of on level one.");
             _runPacingStart = Config.Bind("Progression", "PaceStartingFraction", 0.45f,
@@ -234,7 +241,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
+                string signature = $"{starters.Count}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -247,6 +254,7 @@ namespace RCM_Randomizer
                     RelicRolls.ReapplyDescriptions();
                     GeneratedUpgrades.ReapplyLoca();
                     GeneratedHacks.ReapplyLoca();
+                    SpecialistHacks.ReapplyLoca(); // after RelicRolls.ReapplyDescriptions, which would restore the stock wording
                     GeneratedDrops.ReapplyLoca();
                     ApplyDropDescSuffixes();
                     if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
@@ -262,6 +270,9 @@ namespace RCM_Randomizer
                 Veterancy.Enabled = _veterancyChevrons.Value;
                 Veterancy.RankCost = _veterancyRankCost.Value;
                 Veterancy.EscalatingRanks = _veterancyRankCost.Value > 0f;
+                Veterancy.EarnFromKills = _veterancyRankCost.Value > 0f;
+                Veterancy.Configure(_veterancyBonus.Value);
+                SetLocaText(Veterancy.TooltipLocaKey, "Veterancy");
                 // rebuilt per cycle, not once at Awake: the pool depends on the ladder, and on
                 // MetaGame being loaded at all (it is not, when Awake runs)
                 RollEngine.SkillOptions = SkillInjector.Options;
@@ -284,6 +295,7 @@ namespace RCM_Randomizer
                 if (_generatedUpgradeCount.Value > 0) GeneratedUpgrades.Apply(seed, luck, _generatedUpgradeCount.Value); // AFTER UpgradeRolls: authored numbers must not double-roll
                 if (_rollHacks.Value) RelicRolls.Apply(seed, _intensity.Value, luck);
                 if (_generatedHackCount.Value > 0) GeneratedHacks.Apply(seed, luck, _generatedHackCount.Value); // after RelicRolls: authored numbers
+                SpecialistHacks.Apply(SkillInjector.ReplacedSkillOf); // after RelicRolls: authored numbers, and only for swapped skills
                 if (_enemyRolls.Value)
                     _appliedChangeIds.AddRange(EnemyRolls.Apply(seed, escalation, _intensity.Value,
                         (id, changes, source) => { RegisterChangesQuietly(id, changes, source); return true; },
@@ -305,6 +317,8 @@ namespace RCM_Randomizer
                 // One line that says what the run is actually set up to do. Everything above logs
                 // its own detail, but a single summary is what makes a bug report answerable
                 // without asking for the whole file.
+                if (_dumpPrefabFacts.Value)
+                    Probe.Run(RollEngine.RollableEntityIds(includeDrops: false).Union(_donorMap != null ? _donorMap.Values : Enumerable.Empty<string>()), id => _donorMap != null && _donorMap.TryGetValue(id, out string donor) ? donor : null);
                 RCMManager.Log($"Randomizer ready: seed {seed}, {_mode.Value}, luck {luck:F2}, {Progression.Describe()}, "
                     + $"pacing {(RunPacing.Enabled ? $"from {RunPacing.StartingFraction:P0}" : "off")}, "
                     + $"skills {RollEngine.SkillOptions.Count} available");
@@ -486,6 +500,7 @@ namespace RCM_Randomizer
             RestoreDropDescSuffixes();
             RestoreCapturedTech();
             UpgradeRolls.Restore();
+            SpecialistHacks.Restore(); // before RelicRolls.Restore, which writes values back by index
             RelicRolls.Restore();
             GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
             GeneratedHacks.Deactivate();
@@ -795,6 +810,7 @@ namespace RCM_Randomizer
             {
                 float costMult;
                 float rangeRatio = 1f;
+                float splashDelta = 0f;
                 try
                 {
                     float delta = RollEngine.WeaponTransferPowerDelta(pair.Key, pair.Value);
@@ -809,11 +825,34 @@ namespace RCM_Randomizer
                         delta += 0.45f * Mathf.Log(rangeRatio);
                     }
 
+                    // so does its SPLASH: impact identifiers select by the firing unit's own EffectRadius1,
+                    // so an artillery shell on a chassis with radius 0 would hit nothing (and on one with a
+                    // bigger radius, too much). A donor without splash leaves the host's value alone - the
+                    // host may be using it for its own skill.
+                    float baseSplash = EntityBalancingStore.EffectRadius1(pair.Key, returnOriginalValueFromBalancingFile: true);
+                    float donorSplash = EntityBalancingStore.EffectRadius1(pair.Value, returnOriginalValueFromBalancingFile: true);
+                    if (donorSplash > 0.01f && Mathf.Abs(donorSplash - baseSplash) > 0.01f)
+                    {
+                        splashDelta = donorSplash - baseSplash;
+                        delta += 0.20f * Mathf.Log((donorSplash + 0.5f) / (baseSplash + 0.5f));
+                    }
+
+                    // what the table cannot see is the DELIVERY: a piercing beam, a wide hit box, homing
+                    // shells. The donor's own price is the best proxy there is - a gun lifted off an
+                    // 800-credit unit is a better gun than one off a 120-credit unit even at the host's
+                    // damage numbers (Support Tank + Eradicator beam was the playtest case).
+                    float baseCost = EntityBalancingStore.Cost(pair.Key, returnOriginalValueFromBalancingFile: true);
+                    float donorCost = EntityBalancingStore.Cost(pair.Value, returnOriginalValueFromBalancingFile: true);
+                    if (baseCost > 1f && donorCost > 1f)
+                        delta += Mathf.Clamp(0.15f * Mathf.Log(donorCost / baseCost), -0.15f, 0.30f);
+
                     costMult = Mathf.Clamp(Mathf.Exp(delta / 1.15f), 0.6f, 2f);
                 }
                 catch { continue; }
                 if (overrides.TryGetValue(pair.Value, out float extra)) costMult *= extra;
 
+                if (Mathf.Abs(splashDelta) > 0.01f)
+                    changes.Add(AddChange(EntityBalancingStore.ChangeableValue.EffectRadius1, splashDelta, pair.Key));
                 if (Mathf.Abs(rangeRatio - 1f) > 0.02f)
                     changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.WeaponRange, rangeRatio, pair.Key));
                 if (Mathf.Abs(costMult - 1f) < 0.02f) continue;

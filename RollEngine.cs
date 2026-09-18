@@ -84,21 +84,26 @@ namespace RCM_Randomizer
         // ---- Catalog: every rollable ChangeableValue with its power weight -------------------
         // Weights start from a log-log fit of cost vs stats on the game's own balancing table
         // (see docs/balance-analysis.md §3) plus per-hit reasoning for shield/armor.
+        // 0.9.1: the fit measures cost ACROSS units, where stats rise together, so each single
+        // exponent came out low (HP 0.30, DMG 0.35). A roll changes ONE stat on ONE unit, and there a
+        // unit's fighting value goes with about sqrt(HP x DPS) - an exponent near 0.5 each. At the
+        // fitted weights +30% HP cost 7%; playtests read exactly like that: tanky, cheap, OP. The
+        // survivability and damage weights now sit at 0.45, and HP-type rolls use a narrower band.
         static readonly List<StatSpec> Catalog = new List<StatSpec>
         {
-            new StatSpec(EntityBalancingStore.ChangeableValue.Damage1,          0.35f, "DMG"),
+            new StatSpec(EntityBalancingStore.ChangeableValue.Damage1,          0.45f, "DMG"),
             new StatSpec(EntityBalancingStore.ChangeableValue.Damage2,          0.15f, "DMG2", 1f, false, true),
-            new StatSpec(EntityBalancingStore.ChangeableValue.Attack1Cooldown, -0.35f, "ROF",  1f, true),
+            new StatSpec(EntityBalancingStore.ChangeableValue.Attack1Cooldown, -0.45f, "ROF",  1f, true),
             new StatSpec(EntityBalancingStore.ChangeableValue.Attack2Cooldown, -0.15f, "ROF2", 1f, false, true),
             new StatSpec(EntityBalancingStore.ChangeableValue.WeaponRange,      0.45f, "RNG",  0.6f, true),
             new StatSpec(EntityBalancingStore.ChangeableValue.EffectRadius1,    0.20f, "AOE",  0.6f, true),
             new StatSpec(EntityBalancingStore.ChangeableValue.EffectRadius2,    0.10f, "AOE2", 0.6f, false, true),
-            new StatSpec(EntityBalancingStore.ChangeableValue.MaxHealth,        0.30f, "HP"),
-            new StatSpec(EntityBalancingStore.ChangeableValue.MaxShield,        0.12f, "SHIELD"),
-            new StatSpec(EntityBalancingStore.ChangeableValue.ArmorProtection,  0.12f, "ARMOR"),
+            new StatSpec(EntityBalancingStore.ChangeableValue.MaxHealth,        0.45f, "HP",     0.75f),
+            new StatSpec(EntityBalancingStore.ChangeableValue.MaxShield,        0.20f, "SHIELD", 0.75f),
+            new StatSpec(EntityBalancingStore.ChangeableValue.ArmorProtection,  0.22f, "ARMOR",  0.75f),
             new StatSpec(EntityBalancingStore.ChangeableValue.MoveSpeed,        0.18f, "SPD",   0.7f),
             new StatSpec(EntityBalancingStore.ChangeableValue.SightRadius,      0.06f, "SIGHT", 0.7f),
-            new StatSpec(EntityBalancingStore.ChangeableValue.HealAmount1,      0.20f, "HEAL"),
+            new StatSpec(EntityBalancingStore.ChangeableValue.HealAmount1,      0.30f, "HEAL",   0.75f),
             new StatSpec(EntityBalancingStore.ChangeableValue.HealAmount2,      0.10f, "HEAL2"),
             new StatSpec(EntityBalancingStore.ChangeableValue.GainCreditsAmount,0.50f, "INCOME", 0.5f),
             new StatSpec(EntityBalancingStore.ChangeableValue.MaxMana,          0.10f, "MANA"),
@@ -260,7 +265,7 @@ namespace RCM_Randomizer
         // production duration are 0 so compensation naturally no-ops — one-shot consumables get
         // pure variance instead, biased by luck like everything else). Sorted + deduped so ids
         // and rolls stay deterministic.
-        static List<string> RollableEntityIds(bool includeDrops)
+        public static List<string> RollableEntityIds(bool includeDrops)
         {
             var set = new HashSet<string>(EntityBalancingStore.AllEntityIdsAllowedAsBlueprints(withProducts: true));
             // run-start choices roll too: engineers, economy refineries (+ their harvesters) and
@@ -372,7 +377,7 @@ namespace RCM_Randomizer
                 }
             }
 
-            AddCompensation(roll, entityId, Math.Min(0.5f, 0.15f * luck));
+            AddCompensation(roll, entityId, Math.Min(0.3f, 0.10f * luck));
             roll.Label = BuildLabel(roll);
             return roll;
         }
@@ -546,7 +551,7 @@ namespace RCM_Randomizer
 
         // Pay the power delta back through cost and build time (weighted 1.0 / 0.30, with build time
         // moving at half the cost's log-rate, mirroring how the two correlate in the balancing table).
-        // luckDiscount (0..0.5) reduces what a BUFF has to pay back; nerfs are always fully refunded,
+        // luckDiscount (0..0.3) reduces what a BUFF has to pay back; nerfs are always fully refunded,
         // so higher difficulty makes cards better value on average, never worse.
         static void AddCompensation(EntityRoll roll, string entityId, float luckDiscount = 0f)
         {
@@ -561,12 +566,12 @@ namespace RCM_Randomizer
             float lnCost = payable / denominator;
             if (hasCost)
             {
-                float mult = Clamp((float)Math.Exp(lnCost), 0.6f, 1.8f);
+                float mult = Clamp((float)Math.Exp(lnCost), 0.6f, 2.2f);
                 roll.Stats.Add(new RolledStat { Spec = CostSpec, Multiplier = mult, IsCompensation = true });
             }
             if (hasProd)
             {
-                float mult = Clamp((float)Math.Exp(lnCost * 0.5f), 0.7f, 1.5f);
+                float mult = Clamp((float)Math.Exp(lnCost * 0.5f), 0.7f, 1.7f);
                 roll.Stats.Add(new RolledStat { Spec = ProdSpec, Multiplier = mult, IsCompensation = true });
             }
         }
