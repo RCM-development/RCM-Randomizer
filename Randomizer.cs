@@ -66,6 +66,7 @@ namespace RCM_Randomizer
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
         readonly List<int> _appliedChangeIds = new List<int>();
         int? _appliedSeed;
+        bool _seedChangeDeferred;
         string _appliedConfigSignature;
         string _turretStatus = "off";
         bool _loggedOffMode;
@@ -183,6 +184,22 @@ namespace RCM_Randomizer
                 _loggedOffMode = false;
 
                 int seed = CurrentSeed();
+                // A run keeps the seed it started with. The sidecar can change mid-run (the
+                // panel's reroll button - which is how a starter picked on the setup screen
+                // morphed into a different unit by the first level), and re-applying a new seed
+                // mid-run re-rolls every card the player already chose from. Deferred until the
+                // next visit to the menu. PerRun's seed is the run id and cannot change mid-run.
+                if (_mode.Value == Mode.PerSave && _appliedSeed.HasValue && seed != _appliedSeed.Value
+                    && Game.StageMap != null)
+                {
+                    if (!_seedChangeDeferred)
+                    {
+                        _seedChangeDeferred = true;
+                        RCMManager.Log($"Randomizer: seed change ({_appliedSeed.Value} -> {seed}) deferred until back in the menu");
+                    }
+                    seed = _appliedSeed.Value;
+                }
+                else _seedChangeDeferred = false;
                 float luck = CurrentLuck();
                 int escalation = CurrentEscalation();
                 string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
@@ -215,6 +232,7 @@ namespace RCM_Randomizer
                 // rebuilt per cycle, not once at Awake: the pool depends on the ladder, and on
                 // MetaGame being loaded at all (it is not, when Awake runs)
                 RollEngine.SkillOptions = SkillInjector.Options;
+                RollEngine.StarterIds = CollectStarterIds();
                 ShopTweaks.Enabled = _shopTweaks.Value; ShopTweaks.Seed = seed; ShopTweaks.Luck = luck;
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
@@ -274,6 +292,37 @@ namespace RCM_Randomizer
             EntityBalancingStore.SourceOfInGameCardChangesFromUniqueEntityId[uniqueChangeId] = source;
         }
 
+        // Run-start choices whose stock secondary made every run open the same way: economy
+        // harvesters (always cloned themselves) and specialist units like the Support Tank
+        // (always cast Robust). Units only - and never engineers, whose skill button is the
+        // build button.
+        HashSet<string> CollectStarterIds()
+        {
+            var set = new HashSet<string>();
+            try
+            {
+                foreach (var refineryId in EconomyBalancingStore.RefineryIds(inactive: false))
+                {
+                    string product = EntityBalancingStore.ProductEntityId(refineryId);
+                    if (product != null) set.Add(product);
+                }
+                foreach (var id in EntityBalancingStore.EntityIds(isForSpecialists: true, inactive: false))
+                    set.Add(id);
+                set.RemoveWhere(id =>
+                {
+                    try
+                    {
+                        return !EntityBalancingStore.HasRole(id, UnitRole.Unit)
+                            || EntityBalancingStore.HasRole(id, UnitRole.Engineer)
+                            || EntityBalancingStore.HasRole(id, UnitRole.Drop);
+                    }
+                    catch { return true; }
+                });
+            }
+            catch (Exception e) { RCMManager.Log("Randomizer: starter id collection failed (" + e.Message + ")"); }
+            return set;
+        }
+
         void ApplyRolls(int seed, float luck)
         {
             EntityBalancingStore.Init();
@@ -282,24 +331,34 @@ namespace RCM_Randomizer
             foreach (var roll in rolls)
             {
                 var changes = new List<CardChangeScriptableObject>();
-                foreach (var stat in roll.Stats)
-                    changes.Add(MultiplyChange(stat.Spec.Value, stat.Multiplier, roll.EntityId));
-
+                // skill block FIRST: it may still amend the rolled stats (undoing a MaxMana nerf
+                // that would starve the injected skill) before they become change objects below
                 if (roll.SkillId != null)
                 {
                     var spec = SkillInjector.Get(roll.SkillId);
                     if (spec != null)
                     {
-                        skilled.Add(roll.EntityId + "=" + spec.ShortName);
-                        SkillInjector.Assign(roll.EntityId, roll.SkillId);
+                        skilled.Add(roll.EntityId + "=" + spec.ShortName + (roll.ForceReplaceSkill ? "*" : ""));
+                        SkillInjector.Assign(roll.EntityId, roll.SkillId, roll.ForceReplaceSkill);
                         // numbers via the card-change layer so the card shows them, as DELTAS
                         // from the unit's own values (a replaced skill already carries a mana
                         // cost); a unit without a mana pool gets one, or the button stays greyed
                         float manaCostDelta = spec.ManaCost - EntityBalancingStore.SkillManaCost(roll.EntityId, returnOriginalValueFromBalancingFile: true);
                         if (Mathf.Abs(manaCostDelta) > 0.01f)
                             changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillManaCost, manaCostDelta, roll.EntityId));
-                        if (EntityBalancingStore.MaxMana(roll.EntityId, returnOriginalValueFromBalancingFile: true) <= 0)
+                        float originalMaxMana = EntityBalancingStore.MaxMana(roll.EntityId, returnOriginalValueFromBalancingFile: true);
+                        if (originalMaxMana <= 0)
                             changes.Add(AddChange(EntityBalancingStore.ChangeableValue.MaxMana, 60f, roll.EntityId));
+                        else
+                        {
+                            // the pool must afford the INJECTED skill's cost (the harvester shipped
+                            // a 30-mana skill on a 28-mana pool once): undo any MaxMana nerf the
+                            // stat roll made and top the pool up to the cost if it is still short
+                            var manaStat = roll.Stats.FirstOrDefault(s => s.Spec.Value == EntityBalancingStore.ChangeableValue.MaxMana);
+                            if (manaStat != null && manaStat.Multiplier < 1f) manaStat.Multiplier = 1f;
+                            if (spec.ManaCost > originalMaxMana)
+                                changes.Add(AddChange(EntityBalancingStore.ChangeableValue.MaxMana, spec.ManaCost * 1.05f - originalMaxMana, roll.EntityId));
+                        }
                         int originalSkillRange = EntityBalancingStore.SkillRange(roll.EntityId, returnOriginalValueFromBalancingFile: true);
                         if (spec.SkillRange > 0 && originalSkillRange >= 0 && spec.SkillRange != originalSkillRange)
                             changes.Add(AddChange(EntityBalancingStore.ChangeableValue.SkillRange, spec.SkillRange - originalSkillRange, roll.EntityId));
@@ -311,6 +370,9 @@ namespace RCM_Randomizer
                         }
                     }
                 }
+
+                foreach (var stat in roll.Stats)
+                    changes.Add(MultiplyChange(stat.Spec.Value, stat.Multiplier, roll.EntityId));
 
                 string locaKey = LocaKeyFor(roll.UniqueChangeId);
                 SetLocaText(locaKey, roll.Label);

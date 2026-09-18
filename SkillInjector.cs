@@ -27,6 +27,7 @@ namespace RCM_Randomizer
             public bool TargetEnemiesOnly;
             public bool HighEnd;         // only rolls on Rare/UltraRare cards
             public int MinTier;          // progression tier the run must have unlocked
+            public UnitRole RequiredRole = UnitRole.None; // e.g. Harvest Surge only fits harvesters
             public float WeaponNerf = 1f; // caster archetype: own weapon damage multiplier (budget-credited)
             public Func<List<IEntityAction>> BuildActions;
             // Skills that depend on content we have to find at runtime (prefabs, donor actions)
@@ -262,6 +263,52 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
+                // harvest rate IS MaxArmor on harvesters (Harvest.cs reads _self.MaxArmor per
+                // frame), so a timed relative change genuinely doubles the flow
+                Id = "harvestsurge", ShortName = "Harvest Surge", ManaCost = 25f, Power = 0.15f,
+                RequiredRole = UnitRole.Harvester,
+                Description = "Overclock the extractor: double harvest rate for 10 seconds.",
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new ChangeSpecificValue
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        valueToChange = EntityController.ChangeableValue.MaxArmor,
+                        addType = SpecificValueChange.AddType.Relative,
+                        valueToAddSource = ChangeSpecificValue.ValueToAddSource.One,
+                        multiplier = 1.0f,
+                        isStackable = false,
+                        originatorIdOption = ChangeSpecificValue.OriginatorIdOption.GivenString,
+                        originatorId = "rcmSkillHarvestSurge",
+                        durationType = ChangeSpecificValue.DurationType.Seconds,
+                        durationSource = EntityActionDuration.MultipleEntitySource.One,
+                        durationMultiplier = 10f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
+                Id = "deployturret", ShortName = "Deploy Turret", ManaCost = 45f, Power = 0.30f, MinTier = 1,
+                Description = "Deploy a machine gun turret at the target location. It dismantles itself after 30 seconds.",
+                Target = TargetOrigin.ChosenLocation, SkillRange = 5,
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new SpawnObject
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        spawn = SpawnObject.Spawn.EntityId,
+                        entityId = "MachineGunTurret", // building: goes through CreateAndPlaceBuilding
+                        initEntityController = true,
+                        startingPosition = SpawnObject.StartingPosition.PayloadPosition,
+                        positioningAlgorithm = SpawnObject.PositioningAlgorithm.RandomFreeCellAround,
+                        tagHandling = SpawnObject.OverwriteTagOption.OverwriteWithOwnTag,
+                        timeToLiveSource = EntityActionDuration.MultipleEntitySource.One,
+                        timeToLiveMultiplier = 30f,
+                    },
+                }
+            },
+            new SkillSpec
+            {
                 Id = "turbo", ShortName = "Turbo", ManaCost = 25f, Power = 0.10f,
                 Description = "Floor it: +60% movement speed for 6 seconds.",
                 BuildActions = () => new List<IEntityAction>
@@ -403,22 +450,26 @@ namespace RCM_Randomizer
             .Select(s => new RollEngine.SkillOption
             {
                 Id = s.Id, ShortName = s.ShortName, Power = s.Power,
-                HighEnd = s.HighEnd, WeaponNerf = s.WeaponNerf,
+                HighEnd = s.HighEnd, WeaponNerf = s.WeaponNerf, RequiredRole = s.RequiredRole,
             }).ToList();
 
         public static SkillSpec Get(string skillId) => Catalog.FirstOrDefault(s => s.Id == skillId);
 
         // entityId -> skillId for the current seed
         static readonly Dictionary<string, string> Assigned = new Dictionary<string, string>();
+        // starter units whose stock skill is deliberately swapped even though replacement is
+        // otherwise off (the PlanterTank rule protects everyone else)
+        static readonly HashSet<string> ForceReplaced = new HashSet<string>();
 
-        public static void Assign(string entityId, string skillId)
+        public static void Assign(string entityId, string skillId, bool forceReplace = false)
         {
             Assigned[entityId] = skillId;
+            if (forceReplace) ForceReplaced.Add(entityId);
             var spec = Get(skillId);
             if (spec != null) SetSkillDescription(entityId, spec.ShortName + ": " + spec.Description);
         }
 
-        public static void ClearAssignments() => Assigned.Clear();
+        public static void ClearAssignments() { Assigned.Clear(); ForceReplaced.Clear(); }
 
         // The skill tooltip resolves Loca.SkillDescription(entityId); keys must be lowercased
         // (Loca.Translate lowercases ids). Re-applied via ReapplyDescriptions after the game
@@ -451,7 +502,7 @@ namespace RCM_Randomizer
             if (Assigned.Count == 0) return;
             string entityId = entity.entityId;
             if (string.IsNullOrEmpty(entityId) || !Assigned.TryGetValue(entityId, out string skillId)) return;
-            if (entity.hasActiveSkill && !AllowReplaceExisting) return;
+            if (entity.hasActiveSkill && !AllowReplaceExisting && !ForceReplaced.Contains(entityId)) return;
             var spec = Get(skillId);
             if (spec == null) return;
 

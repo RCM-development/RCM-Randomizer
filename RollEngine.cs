@@ -42,6 +42,7 @@ namespace RCM_Randomizer
             public float PowerDelta;   // sum of weight * ln(mult) over the non-compensation stats
             public string SkillId;     // rolled custom skill (rare), null for most cards
             public string SkillName;
+            public bool ForceReplaceSkill; // starter units: their stock skill IS swapped out
         }
 
         public struct SkillOption
@@ -51,10 +52,18 @@ namespace RCM_Randomizer
             public float Power;
             public bool HighEnd;      // only offered on Rare/UltraRare cards
             public float WeaponNerf;  // caster archetype: own-weapon damage multiplier, credited to the budget
+            public UnitRole RequiredRole; // None = any unit; e.g. Harvest Surge only fits harvesters
         }
 
         // Custom skills available as rare rolls; the plugin fills this from SkillInjector.Catalog.
         public static IReadOnlyList<SkillOption> SkillOptions = new List<SkillOption>();
+
+        // Run-start choices (economy harvesters, specialist units like the Support Tank). Their
+        // stock secondary was identical every run - the harvester always cloned itself, the tank
+        // always cast Robust - so these ALWAYS roll a replacement skill from whatever fits their
+        // role, priced into the budget like any buff. Filled by the plugin; engineers never
+        // qualify (their skill button is the build button).
+        public static HashSet<string> StarterIds = new HashSet<string>();
 
         // Chance factor for swapping out a skill the unit already owns (0 = never).
         public static float ReplaceExistingSkillChance = 0.35f;
@@ -293,20 +302,26 @@ namespace RCM_Randomizer
             // Rare skill roll: a custom active skill on top of the stat roll, likelier on rarer
             // cards and at higher luck, priced into the budget like any other buff. Units that
             // already own a skill can have it swapped for a rolled one, at a reduced chance.
-            if (SkillOptions.Count > 0 && IsSkillEligible(entityId))
+            // Starter units are the exception: they ALWAYS swap, because their stock secondary is
+            // the one thing every run otherwise has in common.
+            bool starter = StarterIds.Contains(entityId);
+            if (SkillOptions.Count > 0 && (starter || IsSkillEligible(entityId)))
             {
                 float chance = SkillChance(entityId) * (1f + 0.4f * luck);
                 if (HasOwnSkill != null && HasOwnSkill(entityId)) chance *= ReplaceExistingSkillChance;
-                if (rand.NextDouble() < Math.Min(0.45f, chance))
+                if (starter || rand.NextDouble() < Math.Min(0.45f, chance))
                 {
-                    // high-end skills (orbital strike etc.) only appear on Rare+ cards
+                    // high-end skills (orbital strike etc.) only appear on Rare+ cards; starters
+                    // draw from the full pool - the price is charged to their budget either way
                     var rarity = EntityBalancingStore.Rarity(EntityBalancingStore.FactoryEntityId(entityId) ?? entityId);
-                    var pool = SkillOptions.Where(o => !o.HighEnd || rarity != Rarity.Common).ToList();
+                    var pool = SkillOptions.Where(o => (starter || !o.HighEnd || rarity != Rarity.Common)
+                        && (o.RequiredRole == UnitRole.None || SafeHasRole(entityId, o.RequiredRole))).ToList();
                     if (pool.Count > 0)
                     {
                         var option = pool[rand.Next(pool.Count)];
                         roll.SkillId = option.Id;
                         roll.SkillName = option.ShortName;
+                        roll.ForceReplaceSkill = starter;
                         roll.PowerDelta += option.Power;
                         // caster archetype: the weapon nerf is a real cost, credit it
                         if (option.WeaponNerf > 0f && option.WeaponNerf < 1f)
@@ -365,6 +380,12 @@ namespace RCM_Randomizer
                 if (EntityBalancingStore.HasRole(entityId, UnitRole.Engineer)) return false;
                 return EntityBalancingStore.ProductEntityId(entityId) == null;
             }
+            catch { return false; }
+        }
+
+        static bool SafeHasRole(string entityId, UnitRole role)
+        {
+            try { return EntityBalancingStore.HasRole(entityId, role); }
             catch { return false; }
         }
 
