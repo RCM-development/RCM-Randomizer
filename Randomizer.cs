@@ -19,15 +19,17 @@ namespace RCM_Randomizer
     // in green and the stat tooltip names the roll, e.g. "Overclocked | DMG +21% | COST +14%".
     //
     // Rolls are derived deterministically from a seed (per run: the game's own Run ID;
-    // per save: a sidecar seed file in the profile folder), so nothing is written into
+    // per save: a seed file beside the profile folders), so nothing is written into
     // the savegame and removing the plugin restores the stock game.
     [BepInDependency(RCMManager.IDENTIFIER, BepInDependency.DependencyFlags.HardDependency)]
     [BepInDependency("RCM.plugins.mixnmatch", BepInDependency.DependencyFlags.SoftDependency)]
-    [BepInPlugin(IDENTIFIER, "Randomizer", "0.3.0")]
+    [BepInPlugin(IDENTIFIER, "Randomizer", Version)]
     public class Randomizer : BaseUnityPlugin
     {
         const string IDENTIFIER = "RCM.plugins.randomizer";
         const string SeedFileName = "randomizerSeed.txt";
+        // keep in step with <Version> in RCM_Randomizer.csproj (BepInPlugin needs a constant)
+        public const string Version = "0.9.0";
 
         public enum Mode { Off, PerSave, PerRun }
 

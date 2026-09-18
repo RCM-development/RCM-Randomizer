@@ -4,12 +4,12 @@ Blueprint stat randomizer for Rogue Command (BepInEx plugin, part of the [RCM](h
 
 ## Idea
 
-Blueprint cards keep their identity, but the numbers on them get rolled within bounds: damage, HP, range, speed, sight, cost, build time and more. Two modes are planned:
+Blueprint cards keep their identity, but the numbers on them get rolled within bounds: damage, HP, range, speed, sight, cost, build time and more. Two modes:
 
 - **Per save**: rolled once per profile, so each campaign has its own version of every card.
 - **Per run**: fresh rolls every run, derived from the run seed ("Run ID").
 
-Rolls are deterministic from the seed, so nothing extra needs to be saved and savegames stay untouched. Remove the plugin and you're back to the stock game.
+Rolls are deterministic from the seed, so nothing extra needs to be saved and savegames stay untouched. Set the mode to `Off` to play stock; to uninstall, finish the current run first (see [INSTALL.md](INSTALL.md)).
 
 ## Balance
 
@@ -38,12 +38,12 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 - `Randomizer: skills -> Unit=Skill, …` — who rolled what; `*` marks a run-start unit whose stock skill was replaced.
 - `Randomizer: skill '<id>' fired by <unit>` — a cast actually ran.
 - `Randomizer: roof turrets -> Unit+Turret, …` / `roof turret X mounted on Y` — who rolled a second gun, and that it actually spawned.
-- `structural check <unit>: pivot/unit footprint x, rest/pivot volume y -> TORSO|turret` — the mixer's measurement behind a mounting decision, once per unit.
+- `structural check <unit>: pivot/unit footprint x, rest/pivot volume y -> TORSO|turret` — the mixer's measurement behind a mounting decision, once per unit. Off by default; enable `Diagnostics.VerboseLog` in `RCM.plugins.mixnmatch.cfg`.
 - `seed change (a -> b) deferred until back in the plain menu` — a reroll arrived while it could not be applied.
 
 ## Status
 
-Feature-complete against the content plan; verified in play for stat rolls, turret combinations, names and portraits, starter skills and the setup-screen/run consistency. Generated upgrades, hacks, drops, shop tweaks and veterancy have run without errors but have had little deliberate testing. Analysis and roadmap: `docs/balance-analysis.md`.
+Version 0.9.0, the first release; see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills and the setup-screen/run consistency. Generated upgrades, hacks, drops, shop tweaks and veterancy have run without errors but have had little deliberate testing. Analysis and roadmap: `docs/balance-analysis.md`.
 
 ## Install
 
