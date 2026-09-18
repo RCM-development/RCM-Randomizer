@@ -184,18 +184,20 @@ namespace RCM_Randomizer
                 _loggedOffMode = false;
 
                 int seed = CurrentSeed();
-                // A run keeps the seed it started with. The sidecar can change mid-run (the
-                // panel's reroll button - which is how a starter picked on the setup screen
-                // morphed into a different unit by the first level), and re-applying a new seed
-                // mid-run re-rolls every card the player already chose from. Deferred until the
-                // next visit to the menu. PerRun's seed is the run id and cannot change mid-run.
+                // A run keeps the seed it started with - and so does the run-SETUP screen. The
+                // sidecar can change under an open picker (reroll button, profile deletion), the
+                // already-instantiated cards never repaint, and the run then starts under rolls
+                // the player never saw. So the seed holds from the moment a ChooseCard screen is
+                // open, through the scene load, to the end of the run; it may only move in the
+                // plain menu, where nothing built from it is on screen. PerRun's seed is the run
+                // id and cannot change mid-run anyway.
                 if (_mode.Value == Mode.PerSave && _appliedSeed.HasValue && seed != _appliedSeed.Value
-                    && Game.StageMap != null)
+                    && SeedMustHold())
                 {
                     if (!_seedChangeDeferred)
                     {
                         _seedChangeDeferred = true;
-                        RCMManager.Log($"Randomizer: seed change ({_appliedSeed.Value} -> {seed}) deferred until back in the menu");
+                        RCMManager.Log($"Randomizer: seed change ({_appliedSeed.Value} -> {seed}) deferred until back in the plain menu");
                     }
                     seed = _appliedSeed.Value;
                 }
@@ -295,7 +297,9 @@ namespace RCM_Randomizer
         // Run-start choices whose stock secondary made every run open the same way: economy
         // harvesters (always cloned themselves) and specialist units like the Support Tank
         // (always cast Robust). Units only - and never engineers, whose skill button is the
-        // build button.
+        // build button. Each source is guarded on its own: one store throwing on an early apply
+        // must not empty the whole set (it did, and the first cycle of every session shipped
+        // starters with stock skills).
         HashSet<string> CollectStarterIds()
         {
             var set = new HashSet<string>();
@@ -306,26 +310,44 @@ namespace RCM_Randomizer
                     string product = EntityBalancingStore.ProductEntityId(refineryId);
                     if (product != null) set.Add(product);
                 }
-                foreach (var id in EntityBalancingStore.EntityIds(isForSpecialists: true, inactive: false))
-                    set.Add(id);
-                // the Support Tank carries "Specialist" as a ROLE, not the isForSpecialists flag -
-                // relying on the flag alone left it as the one starter that never varied
-                foreach (var id in EntityBalancingStore.AllEntityIdsHaving(UnitRole.Specialist, null,
-                             demoBlueprintsOnly: false, EntityBalancingStore.SpecialistFilter.All, inactive: false))
-                    set.Add(id);
-                set.RemoveWhere(id =>
-                {
-                    try
-                    {
-                        return !EntityBalancingStore.HasRole(id, UnitRole.Unit)
-                            || EntityBalancingStore.HasRole(id, UnitRole.Engineer)
-                            || EntityBalancingStore.HasRole(id, UnitRole.Drop);
-                    }
-                    catch { return true; }
-                });
             }
-            catch (Exception e) { RCMManager.Log("Randomizer: starter id collection failed (" + e.Message + ")"); }
+            catch (Exception e) { RCMManager.Log("Randomizer: economy starter collection failed (" + e.Message + ")"); }
+            try
+            {
+                // a specialistId IS an entity id (the store's own role filters read the entity's
+                // roles, and its inspector jump goes to the entity). The entity table itself is no
+                // help here: BountyTank carries neither the isForSpecialists flag nor the
+                // Specialist role in balancing - the role badge on its card is added at runtime.
+                foreach (var id in SpecialistBalancingStore.SpecialistIds(inactive: false))
+                    set.Add(id);
+            }
+            catch (Exception e) { RCMManager.Log("Randomizer: specialist starter collection failed (" + e.Message + ")"); }
+            set.RemoveWhere(id =>
+            {
+                try
+                {
+                    return !EntityBalancingStore.HasRole(id, UnitRole.Unit)
+                        || EntityBalancingStore.HasRole(id, UnitRole.Engineer)
+                        || EntityBalancingStore.HasRole(id, UnitRole.Drop);
+                }
+                catch { return true; }
+            });
             return set;
+        }
+
+        // True while anything the seed built is committed on screen or in play: the game scene
+        // (loading or active) and any live ChooseCard screen - which covers the run-setup picker
+        // in the menu. Only the plain menu returns false.
+        static bool SeedMustHold()
+        {
+            try
+            {
+                if (SceneManagerWrapper.IsGameSceneLoadedOrActive) return true;
+                foreach (var picker in UnityEngine.Object.FindObjectsOfType<ChooseCard>())
+                    if (picker.isActiveAndEnabled) return true;
+            }
+            catch { }
+            return false;
         }
 
         void ApplyRolls(int seed, float luck)
