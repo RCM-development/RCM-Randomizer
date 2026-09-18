@@ -43,6 +43,7 @@ namespace RCM_Randomizer
             public string SkillId;     // rolled custom skill (rare), null for most cards
             public string SkillName;
             public bool ForceReplaceSkill; // starter units: their stock skill IS swapped out
+            public string RoofTurretId;    // rolled second weapon (a child turret entity), null for most
         }
 
         public struct SkillOption
@@ -64,6 +65,15 @@ namespace RCM_Randomizer
         // role, priced into the budget like any buff. Filled by the plugin; engineers never
         // qualify (their skill button is the build button).
         public static HashSet<string> StarterIds = new HashSet<string>();
+
+        // Roof turrets: a second, independently firing weapon (see RoofTurrets.cs). The plugin fills
+        // the list with the child-turret entities this build of the game has, and leaves it empty
+        // when the feature is off or the progression ladder has not reached it yet.
+        public static IReadOnlyList<string> RoofTurretOptions = new List<string>();
+        public const float RoofTurretPower = 0.22f; // priced like a strong skill
+        // Units that already carry a second gun as an embedded child turret (supplied by the
+        // plugin, which can read prefabs).
+        public static Func<string, bool> HasSecondWeapon;
 
         // Chance factor for swapping out a skill the unit already owns (0 = never).
         public static float ReplaceExistingSkillChance = 0.35f;
@@ -349,9 +359,41 @@ namespace RCM_Randomizer
                 }
             }
 
+            // Rare second weapon. Drawn from its OWN seeded stream: pulling from `rand` here would
+            // shift every later draw and quietly reroll cards on seeds people already play.
+            if (RoofTurretOptions.Count > 0 && IsRoofTurretEligible(entityId))
+            {
+                var roofRand = new Random(seed ^ Fnv1a("roof:" + entityId));
+                float chance = SkillChance(entityId) * 0.8f * (1f + 0.4f * luck);
+                if (roofRand.NextDouble() < Math.Min(0.4f, chance))
+                {
+                    roll.RoofTurretId = RoofTurretOptions[roofRand.Next(RoofTurretOptions.Count)];
+                    roll.PowerDelta += RoofTurretPower;
+                }
+            }
+
             AddCompensation(roll, entityId, Math.Min(0.5f, 0.15f * luck));
             roll.Label = BuildLabel(roll);
             return roll;
+        }
+
+        // Hulls with a roof to bolt something to: tanks and vehicles. Not walkers or bots (no
+        // roof), not harvesters or engineers (not fighting units), not anything that already
+        // carries a second gun, and never a roof turret itself.
+        static bool IsRoofTurretEligible(string entityId)
+        {
+            try
+            {
+                if (!EntityBalancingStore.HasRole(entityId, UnitRole.Unit)) return false;
+                if (!EntityBalancingStore.HasRole(entityId, UnitRole.Tank) && !EntityBalancingStore.HasRole(entityId, UnitRole.Vehicle)) return false;
+                if (EntityBalancingStore.HasRole(entityId, UnitRole.Building)
+                    || EntityBalancingStore.HasRole(entityId, UnitRole.Harvester)
+                    || EntityBalancingStore.HasRole(entityId, UnitRole.Engineer)) return false;
+                if (EntityBalancingStore.ProductEntityId(entityId) != null) return false;
+                if (RoofTurretOptions.Contains(entityId)) return false;
+                return HasSecondWeapon == null || !HasSecondWeapon(entityId);
+            }
+            catch { return false; }
         }
 
         // Armor is a whole number everywhere in the stock game, and the unit's armor badge prints it
@@ -548,6 +590,7 @@ namespace RCM_Randomizer
             }
             string text = flavor + " | " + string.Join(" ", buffs.Select(Fmt));
             if (roll.SkillName != null) text += " | SKILL " + roll.SkillName;
+            if (roll.RoofTurretId != null) text += " | ROOF GUN";
             if (comp.Count > 0) text += " | " + string.Join(" ", comp.Select(Fmt));
             return text;
         }

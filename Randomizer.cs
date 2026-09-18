@@ -61,6 +61,7 @@ namespace RCM_Randomizer
         ConfigEntry<int> _generatedDropCount;
         ConfigEntry<bool> _enableHijack;
         ConfigEntry<bool> _flagOnlySkills;
+        ConfigEntry<bool> _roofTurrets;
         ConfigEntry<bool> _shopTweaks;
         ConfigEntry<bool> _auraTweaks;
 
@@ -121,6 +122,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Seed-generated hacks (relics) added to the pools.", new AcceptableValueRange<int>(0, 10)));
             _generatedDropCount = Config.Bind("Drops", "GeneratedCount", 3,
                 new ConfigDescription("Seed-generated drops (existing drop behaviours with their own rolled numbers, filling the Rare shop slots).", new AcceptableValueRange<int>(0, 3)));
+            _roofTurrets = Config.Bind("TurretShuffle", "RoofTurrets", true,
+                "Tanks and vehicles can roll a roof turret: a second weapon that aims and fires on its own, built the way the game builds its own two-gun tanks (a child turret entity). Priced into the card's cost, shown on the card model, player units only, unlocked from progression tier 1.");
             _flagOnlySkills = Config.Bind("Skills", "IncludeFlagOnlySkills", false,
                 "Offer Cloak, War Cry and Mark. They only set a status flag (Stealth, Taunt, Marked), and apart from Stun the game implements status effects in prefab data, not code - so on a unit that does not natively use that status the flag lands and nothing reacts. Off until each is proven to do something in play.");
             _enableHijack = Config.Bind("Skills", "EnableHijack", false,
@@ -229,7 +232,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_flagOnlySkills.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
+                string signature = $"{starters.Count}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -261,6 +264,12 @@ namespace RCM_Randomizer
                 // MetaGame being loaded at all (it is not, when Awake runs)
                 RollEngine.SkillOptions = SkillInjector.Options;
                 RollEngine.StarterIds = starters;
+                // gated one step up the ladder: not on a brand-new relaxed profile, but early
+                // enough to be met in ordinary play (captured tech, at tier 2, comes later)
+                RoofTurrets.Enabled = _roofTurrets.Value;
+                RollEngine.HasSecondWeapon = PrefabHasChildTurret;
+                RollEngine.RoofTurretOptions = _roofTurrets.Value && Progression.IsUnlocked(1)
+                    ? RoofTurrets.AvailableIds() : new List<string>();
                 ShopTweaks.Enabled = _shopTweaks.Value; ShopTweaks.Seed = seed; ShopTweaks.Luck = luck;
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
@@ -381,6 +390,7 @@ namespace RCM_Randomizer
             EntityBalancingStore.Init();
             var rolls = RollEngine.GenerateAll(seed, _intensity.Value, _maxStatsPerRoll.Value, luck, _rollDrops.Value);
             var skilled = new List<string>();
+            var roofed = new List<string>();
             foreach (var roll in rolls)
             {
                 var changes = new List<CardChangeScriptableObject>();
@@ -440,11 +450,21 @@ namespace RCM_Randomizer
                         _dropDescSuffixes[roll.EntityId.Trim().ToLowerInvariant()] = "<i>" + roll.Label + "</i>";
                 }
                 catch { }
+
+                // a second gun is the kind of thing a card has to SAY: the stat lines only ever
+                // describe the main weapon, and the model on the card is small
+                if (roll.RoofTurretId != null)
+                {
+                    RoofTurrets.Assign(roll.EntityId, roll.RoofTurretId);
+                    roofed.Add(roll.EntityId + "+" + roll.RoofTurretId);
+                    _dropDescSuffixes[roll.EntityId.Trim().ToLowerInvariant()] = "<i>Roof gun: a second weapon that aims and fires on its own.</i>";
+                }
             }
             ApplyDropDescSuffixes();
             RCMManager.Log($"Randomizer: {rolls.Count} cards rolled, {skilled.Count} with skills (seed {seed}, {_mode.Value}, luck {luck:F2})");
             // naming them makes "unit X behaves oddly" answerable from the log alone
             if (skilled.Count > 0) RCMManager.Log("Randomizer: skills -> " + string.Join(", ", skilled.ToArray()));
+            if (roofed.Count > 0) RCMManager.Log("Randomizer: roof turrets -> " + string.Join(", ", roofed.ToArray()));
         }
 
         void RemoveRolls()
@@ -459,6 +479,7 @@ namespace RCM_Randomizer
             _appliedSeed = null;
             _appliedConfigSignature = null;
             SkillInjector.ClearAssignments();
+            RoofTurrets.Clear();
             RestoreDropRarities();
             RestoreDropDescSuffixes();
             RestoreCapturedTech();
@@ -468,6 +489,7 @@ namespace RCM_Randomizer
             GeneratedHacks.Deactivate();
             GeneratedDrops.Deactivate();
             ShopTweaks.Enabled = false;
+            RoofTurrets.Enabled = false;
             AuraTweaks.Enabled = false;
             RunPacing.Enabled = false;
             if (hadChanges)
@@ -862,6 +884,26 @@ namespace RCM_Randomizer
 
         // Does this unit's prefab already define an active skill? Read straight off the prefab
         // (no instantiation) and cached, since it is asked once per entity per roll.
+        // Does this unit already carry a second gun? The game's own two-gun tanks embed the roof
+        // turret in the prefab as a child EntityController. Read off the prefab, cached - but, as
+        // with the skill check below, a failed load is NOT remembered.
+        readonly Dictionary<string, bool> _hasChildTurretCache = new Dictionary<string, bool>();
+
+        bool PrefabHasChildTurret(string entityId)
+        {
+            if (_hasChildTurretCache.TryGetValue(entityId, out bool cached)) return cached;
+            try
+            {
+                var prefab = Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation(entityId));
+                var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                bool has = controller != null && controller.childEntityControllers != null
+                           && controller.childEntityControllers.Count > 0;
+                _hasChildTurretCache[entityId] = has;
+                return has;
+            }
+            catch { return true; } // unknown: do not stack a gun on a unit we could not inspect
+        }
+
         readonly Dictionary<string, bool> _hasSkillCache = new Dictionary<string, bool>();
 
         bool PrefabHasActiveSkill(string entityId)

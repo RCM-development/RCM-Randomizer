@@ -27,6 +27,7 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 - **Skills** (`SkillInjector.cs`): a catalog of active skills injected at spawn onto units that have none, priced into the roll budget. Run-start units (economy harvesters, specialists) always roll a replacement for their stock skill; nobody else's own skill is touched. A skill that cannot build its actions, or that only sets a status flag nothing listens to, is not offered. Every cast logs one line.
 - **Generated content**: upgrade cards (`GeneratedUpgrades.cs`, four templates including behaviour rules from `BehaviourMods.cs`), hacks (`GeneratedHacks.cs`) and drops (`GeneratedDrops.cs`) are appended to the game's own registries with seed-independent ids, and only ever switched inactive, never removed.
 - **Progression** (`Progression.cs`, `RunPacing.cs`): generated content carries a tier that becomes its `neededExperienceLevel` and is also checked against a ladder of experience, ascension, heat and difficulty; within a run, blueprint rewards open from the cheap end of each rarity band. Enemies are never gated.
+- **Roof turrets** (`RoofTurrets.cs`): tanks and vehicles can roll a second, independently firing weapon, built the way the game builds its own two-gun tanks - a child turret entity registered with `RegisterChildController`. Priced into the budget, player units only, and seated on the card model by the same local-space routine as in the world.
 - Also: enemy stat rolls that escalate per level (`EnemyRolls.cs`), captured enemy turrets as blueprints, a seeded engineer trait (`EngineerTraits.cs`), shop sales and rarity bumps (`ShopTweaks.cs`), support-aura variance (`AuraTweaks.cs`), multi-tier veterancy with chevrons and rising rank cost (`Veterancy.cs`).
 
 ## Reading the log
@@ -36,6 +37,7 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 - `Randomizer ready: seed …, tier n/4 unlocked, pacing …, skills n available` — one line per apply cycle; check this first.
 - `Randomizer: skills -> Unit=Skill, …` — who rolled what; `*` marks a run-start unit whose stock skill was replaced.
 - `Randomizer: skill '<id>' fired by <unit>` — a cast actually ran.
+- `Randomizer: roof turrets -> Unit+Turret, …` / `roof turret X mounted on Y` — who rolled a second gun, and that it actually spawned.
 - `structural check <unit>: pivot/unit footprint x, rest/pivot volume y -> TORSO|turret` — the mixer's measurement behind a mounting decision, once per unit.
 - `seed change (a -> b) deferred until back in the plain menu` — a reroll arrived while it could not be applied.
 
