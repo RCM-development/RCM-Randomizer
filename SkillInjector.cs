@@ -47,90 +47,48 @@ namespace RCM_Randomizer
         // Set from config: offer skills that only set a status flag (see SkillSpec.FlagOnly).
         public static bool IncludeFlagOnlySkills;
 
-        // A mine is not a balancing entity we can name, so Minefield borrows a real mine layer's
-        // own SpawnObject action: cloning it inherits whatever the game authored — the prefab or
-        // entity id, the controller-init flag, the placement rules — and only the origin is
-        // retargeted to the skill's chosen location. Guessing a single id ("DropMines") found
-        // nothing and shipped a skill that silently ate mana, so the search is over every
-        // mine-named entity and the skill is withheld entirely when none of them yields a spawner.
-        static SpawnObject _mineSpawner;
-        static bool _mineResolved;
-
-        static SpawnObject ResolveMineSpawner()
+        // Mines ARE balancing entities - LargeMine, FireMine, StunMine, CrawlMine sit in the entity
+        // table. An earlier version of this file concluded otherwise from a code search (ids live
+        // in data, not code) and borrowed a "mine layer's" first SpawnObject instead; that turned
+        // out to be the hoverbike's laying EFFECT, so the skill played a puff and placed nothing.
+        // Spawning by id goes through the same factory as everything else, and one helper gives
+        // each mine type its own skill.
+        static bool EntityExists(string entityId)
         {
-            if (_mineResolved) return _mineSpawner;
             try
             {
                 EntityBalancingStore.Init();
-                var donors = MineDonorIds();
-                // No candidates at all means the store was not ready yet, not that the game has no
-                // mines. Latching that would disable Minefield for the rest of the session on the
-                // strength of one early call, so leave it unresolved and try again next cycle.
-                if (donors.Count == 0) return null;
+                return EntityBalancingStore.ParameterListIndexOf.ContainsKey(entityId)
+                    && UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) != null;
+            }
+            catch { return false; }
+        }
 
-                foreach (string donorId in donors)
+        static SkillSpec MineSkill(string id, string name, string description, string mineEntityId, int count,
+                                   float manaCost, float power, int minTier)
+        {
+            return new SkillSpec
+            {
+                Id = id, ShortName = name, Description = description,
+                ManaCost = manaCost, Power = power, MinTier = minTier,
+                Target = TargetOrigin.ChosenLocation, SkillRange = 7,
+                IsAvailable = () => EntityExists(mineEntityId),
+                BuildActions = () =>
                 {
-                    _mineSpawner = FindSpawner(donorId);
-                    if (_mineSpawner == null) continue;
-                    _mineResolved = true;
-                    RCMManager.Log("Randomizer: Minefield takes its mine from " + donorId);
-                    return _mineSpawner;
+                    var actions = new List<IEntityAction>();
+                    for (int i = 0; i < count; i++)
+                        actions.Add(SpawnAtTarget(s =>
+                        {
+                            s.spawn = SpawnObject.Spawn.EntityId;
+                            s.entityId = mineEntityId;
+                            s.initEntityController = true;
+                            // a mine is not an army unit: it must neither take a unit-cap slot
+                            // nor hand one back when it goes off
+                            s.ignoreUnitCapAlthoughNoSpawn = true;
+                        }));
+                    return actions;
                 }
-                // searched real candidates and none of them spawns anything: a genuine negative
-                _mineResolved = true;
-                RCMManager.Log($"Randomizer: no mine layer found in {donors.Count} candidates, Minefield will not be offered");
-            }
-            catch (Exception e) { RCMManager.Log("Randomizer: mine resolution failed (" + e.Message + ")"); }
-            return null;
-        }
-
-        // Drop-style entities first: they exist only to place their payload, so their first
-        // spawner IS the mine, while a mine-laying vehicle may also spawn wrecks or effects.
-        static List<string> MineDonorIds()
-        {
-            var ids = EntityBalancingStore.AllEntityIds()
-                .Where(id => id.IndexOf("mine", StringComparison.OrdinalIgnoreCase) >= 0)
-                .ToList();
-            ids.Sort((a, b) =>
-            {
-                int aDrop = a.StartsWith("Drop", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
-                int bDrop = b.StartsWith("Drop", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
-                return aDrop != bDrop ? aDrop - bDrop : string.CompareOrdinal(a, b);
-            });
-            return ids;
-        }
-
-        static SpawnObject FindSpawner(string entityId)
-        {
-            var prefab = UnityEngine.Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation(entityId));
-            var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
-            if (controller == null || controller.events == null) return null;
-            foreach (var entityEvent in controller.events)
-            {
-                var found = FindSpawner(entityEvent.actions);
-                if (found != null) return found;
-                if (entityEvent.conditionalActions == null) continue;
-                foreach (var conditional in entityEvent.conditionalActions)
-                {
-                    found = FindSpawner(conditional.actions);
-                    if (found != null) return found;
-                }
-            }
-            return null;
-        }
-
-        static SpawnObject FindSpawner(List<IEntityAction> actions)
-        {
-            if (actions == null) return null;
-            foreach (var action in actions)
-            {
-                if (!(action is SpawnObject spawner)) continue;
-                bool spawnsSomething = spawner.spawn == SpawnObject.Spawn.Prefab
-                    ? spawner.prefab != null
-                    : spawner.spawn == SpawnObject.Spawn.EntityId && !string.IsNullOrEmpty(spawner.entityId);
-                if (spawnsSomething) return (SpawnObject)spawner.Clone;
-            }
-            return null;
+            };
         }
 
         static SpawnObject SpawnAtTarget(Action<SpawnObject> configure)
@@ -149,36 +107,10 @@ namespace RCM_Randomizer
         // v1: self-targeted skills only — no targeting cursor, no skill aiming, minimal risk.
         public static readonly List<SkillSpec> Catalog = new List<SkillSpec>
         {
-            new SkillSpec
-            {
-                Id = "minefield", ShortName = "Minefield", ManaCost = 45f, Power = 0.20f, MinTier = 1,
-                Description = "Scatter 4 mines at the target location.",
-                Target = TargetOrigin.ChosenLocation, SkillRange = 7,
-                IsAvailable = () => ResolveMineSpawner() != null,
-                BuildActions = () =>
-                {
-                    var actions = new List<IEntityAction>();
-                    var template = ResolveMineSpawner();
-                    if (template == null) return actions;
-                    for (int i = 0; i < 4; i++)
-                    {
-                        var spawner = (SpawnObject)template.Clone;
-                        spawner.operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self;
-                        spawner.startingPosition = SpawnObject.StartingPosition.PayloadPosition;
-                        spawner.positioningAlgorithm = SpawnObject.PositioningAlgorithm.RandomFreeCellAround;
-                        spawner.tagHandling = SpawnObject.OverwriteTagOption.OverwriteWithOwnTag;
-                        // the donor may cap its live mines, parent them to itself or reuse one
-                        // position for a whole salvo; ours are four independent one-shot mines
-                        spawner.maxLivingObjects = 0;
-                        spawner.additionalCopiesToSpawn = 0;
-                        spawner.spawnAsChildObject = false;
-                        spawner.mimicOriginSelectionStatus = false;
-                        spawner.useFirstCalculatedPositionForAllUnits = false;
-                        actions.Add(spawner);
-                    }
-                    return actions;
-                }
-            },
+            MineSkill("minefield", "Minefield", "Scatter 4 heavy mines at the target location.", "LargeMine", 4, 45f, 0.20f, 1),
+            MineSkill("firemines", "Fire Mines", "Scatter 4 incendiary mines at the target location.", "FireMine", 4, 45f, 0.20f, 1),
+            MineSkill("stunmines", "Stun Mines", "Scatter 3 stun mines at the target location.", "StunMine", 3, 40f, 0.18f, 1),
+            MineSkill("clustermines", "Cluster Mines", "Scatter 6 light mines at the target location.", "CrawlMine", 6, 40f, 0.18f, 1),
             new SkillSpec
             {
                 Id = "reanimate", ShortName = "Reanimate", ManaCost = 50f, Power = 0.22f, HighEnd = true, MinTier = 3,
