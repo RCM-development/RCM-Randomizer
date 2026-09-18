@@ -248,10 +248,12 @@ namespace RCM_Randomizer
         static List<string> RollableEntityIds(bool includeDrops)
         {
             var set = new HashSet<string>(EntityBalancingStore.AllEntityIdsAllowedAsBlueprints(withProducts: true));
-            // run-start choices roll too: engineers and economy refineries (+ their harvesters)
+            // run-start choices roll too: engineers, economy refineries (+ their harvesters) and
+            // specialists. Each source on its own: these stores load later than the entity table,
+            // and one of them throwing must not cost the others their rolls.
+            try { foreach (var id in EngineerBalancingStore.EngineerIds(inactive: false)) set.Add(id); } catch { }
             try
             {
-                foreach (var id in EngineerBalancingStore.EngineerIds(inactive: false)) set.Add(id);
                 foreach (var id in EconomyBalancingStore.RefineryIds(inactive: false))
                 {
                     set.Add(id);
@@ -260,6 +262,10 @@ namespace RCM_Randomizer
                 }
             }
             catch { }
+            // A specialistId IS an entity id. Specialists were never in this universe, so the
+            // Support Tank got no stat roll and no skill roll at all - being listed as a starter
+            // changed nothing, because starters are only consulted for entities that roll.
+            try { foreach (var id in SpecialistBalancingStore.SpecialistIds(inactive: false)) set.Add(id); } catch { }
             if (includeDrops)
             {
                 try

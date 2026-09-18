@@ -204,7 +204,12 @@ namespace RCM_Randomizer
                 else _seedChangeDeferred = false;
                 float luck = CurrentLuck();
                 int escalation = CurrentEscalation();
-                string signature = $"{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
+                // collected up front and folded into the signature: the engineer/economy/specialist
+                // stores load later than the entity table, so the first cycle of a session can see
+                // an empty starter set - without this, that result would stick until something
+                // unrelated happened to invalidate the cache
+                var starters = CollectStarterIds();
+                string signature = $"{starters.Count}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -234,7 +239,7 @@ namespace RCM_Randomizer
                 // rebuilt per cycle, not once at Awake: the pool depends on the ladder, and on
                 // MetaGame being loaded at all (it is not, when Awake runs)
                 RollEngine.SkillOptions = SkillInjector.Options;
-                RollEngine.StarterIds = CollectStarterIds();
+                RollEngine.StarterIds = starters;
                 ShopTweaks.Enabled = _shopTweaks.Value; ShopTweaks.Seed = seed; ShopTweaks.Luck = luck;
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
