@@ -23,9 +23,9 @@ namespace RCM_Randomizer
     public static class EngineerVeterancy
     {
         public static bool Enabled;
-        public static float CostFactor = 3f;
+        public static float CostFactor = 2f;
         public const float BonusFactor = 2f;
-        public const int Ranks = 5;
+        public const int Ranks = Veterancy.Tiers;
 
         const string LabelName = "rcmEngineerCareer";
 
@@ -130,11 +130,11 @@ namespace RCM_Randomizer
         }
 
         // Seeded by run and rank, so a run hands out the same career hacks however it is played.
-        // Ranks 1-2 draw Common, 3-4 Rare, 5 UltraRare, each falling back to the tier below.
+        // Bronze draws a Common hack, silver a Rare, gold an UltraRare, each falling back a tier.
         static string PickHack(int runSeed, int rank)
         {
-            var order = rank >= 5 ? new[] { Rarity.UltraRare, Rarity.Rare, Rarity.Common }
-                      : rank >= 3 ? new[] { Rarity.Rare, Rarity.Common }
+            var order = rank >= 3 ? new[] { Rarity.UltraRare, Rarity.Rare, Rarity.Common }
+                      : rank == 2 ? new[] { Rarity.Rare, Rarity.Common }
                       : new[] { Rarity.Common, Rarity.Rare };
             int level = MetaGame.Instance != null ? MetaGame.Instance.CurrentExperienceLevel : 0;
             foreach (var rarity in order)
@@ -152,6 +152,28 @@ namespace RCM_Randomizer
         static string SafeName(string relicId)
         {
             try { return Loca.RelicName(relicId); } catch { return relicId; }
+        }
+
+        // The engineer's own badge (HealthBar/EngiBarImage/EngiIcon) hangs off the health bar's left
+        // edge, 1.46 wide - exactly where the layout row puts the 1.4 wide veteran slot, so the two
+        // were drawn on top of each other. While a rank shows, the badge moves one slot further left.
+        static readonly Dictionary<int, float> BadgeHomeX = new Dictionary<int, float>();
+
+        public static void OnDisplay(EntityController engineer, int tier)
+        {
+            var baseParams = engineer.baseParameters;
+            if (baseParams == null || baseParams.mainBarsAndIconsGameObject == null) return;
+            RectTransform badge = null;
+            foreach (var rect in baseParams.mainBarsAndIconsGameObject.GetComponentsInChildren<RectTransform>(true))
+                if (rect.name == "EngiIcon") { badge = rect; break; }
+            if (badge == null) return;
+
+            int id = badge.GetInstanceID();
+            if (!BadgeHomeX.TryGetValue(id, out float home)) BadgeHomeX[id] = home = badge.anchoredPosition.x;
+            float slotWidth = 1.5f;
+            var slot = baseParams.veteranIconGameObject != null ? baseParams.veteranIconGameObject.GetComponent<RectTransform>() : null;
+            if (slot != null && slot.rect.width > 0.1f) slotWidth = slot.rect.width + 0.1f;
+            badge.anchoredPosition = new Vector2(tier >= 1 ? home - slotWidth : home, badge.anchoredPosition.y);
         }
 
         // ---- earning from building -------------------------------------------------------------
@@ -180,7 +202,8 @@ namespace RCM_Randomizer
         {
             static void Postfix(EntityController __instance)
             {
-                try { if (Applies(__instance)) RefreshLabel(__instance, show: true); } catch { }
+                try { if (Applies(__instance)) RefreshLabel(__instance, show: true); }
+                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer label failed (" + e.Message + ")"); }
             }
         }
 
@@ -221,6 +244,9 @@ namespace RCM_Randomizer
                 rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
                 rect.pivot = new Vector2(0.5f, 0f);
                 rect.anchoredPosition = new Vector2(0f, 0.6f); // just above the bars
+                // the template stretches inside the armor badge, so its sizeDelta is about zero; with point
+                // anchors that is a zero-size rect, and the first version of this label never rendered
+                rect.sizeDelta = new Vector2(4000f, 300f);
                 rect.localScale = baseParams.armorProtectionText.rectTransform.localScale * 0.7f;
                 clone.SetActive(false);
             }
@@ -228,7 +254,7 @@ namespace RCM_Randomizer
 
             var career = Current();
             string hacks = career.Hacks.Count == 0 ? "no hacks yet" : string.Join(", ", career.Hacks.Select(SafeName));
-            label.text = $"Rank {engineer.CurrentRank}/{engineer.MaxRank} - {hacks}";
+            label.text = (engineer.CurrentRank > 0 ? char.ToUpper(Veterancy.Describe(engineer.CurrentRank)[0]) + Veterancy.Describe(engineer.CurrentRank).Substring(1) : "Unranked") + " engineer - " + hacks;
             if (show.HasValue) label.gameObject.SetActive(show.Value);
         }
     }

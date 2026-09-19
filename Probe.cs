@@ -52,6 +52,19 @@ namespace RCM_Randomizer
                     sb.AppendLine();
                 }
                 catch (Exception e) { sb.AppendLine("engineers FAILED " + e.Message); }
+                // every generated card with the numbers it really carries: a "but" must read as a
+                // drawback AND be one (multiplier < 1, or > 1 on cost / cooldown / build time)
+                sb.AppendLine("# generated upgrades and hacks: id | rarity coins inactive | text | changes");
+                try
+                {
+                    foreach (var row in UpgradeBalancingStore._upgradeBalancingScriptableObject.parameters.Where(r => GeneratedUpgrades.IsGenerated(r.upgradeId)))
+                        sb.AppendLine($"    {row.upgradeId} | {row.rarity} {row.coinsAmount} inactive={row.inactive} | \"{Loca.UpgradeName(row.upgradeId)}\": {Loca.UpgradeDescription(row.upgradeId)} | [{Changes(row.scriptableObject != null ? row.scriptableObject.cardChanges : null)}]"
+                            + (row.scriptableObject != null && row.scriptableObject.entityMods != null && row.scriptableObject.entityMods.Count > 0 ? " +mod" : ""));
+                    foreach (var row in RelicBalancingStore._relicBalancingScriptableObject.parameters.Where(r => GeneratedHacks.IsGenerated(r.relicId)))
+                        sb.AppendLine($"    {row.relicId} | {row.rarity} {row.coinsAmount} inactive={row.inactive} | \"{Loca.RelicName(row.relicId)}\": {Loca.RelicDescription(row.relicId)} | [{Changes(row.scriptableObject != null ? row.scriptableObject.cardChanges : null)}]");
+                }
+                catch (Exception e) { sb.AppendLine("generated cards FAILED " + e.Message); }
+                sb.AppendLine();
                 sb.AppendLine("# applied: specialist hacks as the player will see them");
                 foreach (string specialist in SpecialistBalancingStore.SpecialistIds(false))
                     foreach (string relicId in SpecialistBalancingStore.SpecialistParameters(specialist).associatedRelicIds ?? new List<string>())
@@ -84,7 +97,7 @@ namespace RCM_Randomizer
                         sb.AppendLine($"scene '{manager.name}' | start '{start.name}' disabled={start.isDisabled} roles={start.entityMustHaveAllOfTheseRoles} | mods={string.Join(",", (start.entityMods ?? new List<EntityModScriptableObject>()).Where(m => m != null).Select(m => m.name))}");
                 sb.AppendLine();
                 sb.AppendLine("# bar layout (RectTransforms under mainBarsAndIconsGameObject)");
-                foreach (string id in new[] { "Tier0Tank", "BountyTank", "RoboCrystalHarvester" })
+                foreach (string id in new[] { "Tier0Tank", "Engineer", "CombatEngineer", "ReachEngineer" })
                 {
                     try { DumpBars(sb, id); }
                     catch (Exception e) { sb.AppendLine(id + " | FAILED " + e.Message); }
@@ -124,6 +137,9 @@ namespace RCM_Randomizer
             sb.AppendLine("    locked by progression: " + string.Join(", ", locked));
             sb.AppendLine();
         }
+
+        static string Changes(List<CardChangeScriptableObject> changes)
+            => changes == null ? "" : string.Join("; ", changes.Where(c => c != null).Select(c => c.valueToChange + " " + c.operation + " " + F(c.value)));
 
         static EntityController Load(string entityId)
         {

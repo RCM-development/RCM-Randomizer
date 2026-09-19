@@ -70,6 +70,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _engineerVeterancy;
         ConfigEntry<float> _engineerRankCostFactor;
         ConfigEntry<bool> _shopTweaks;
+        ConfigEntry<bool> _shopRarityBumps;
         ConfigEntry<bool> _auraTweaks;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
@@ -111,8 +112,8 @@ namespace RCM_Randomizer
                 "Extra cost multiplier for units RECEIVING that donor's weapon, comma-separated donorId=multiplier. Use for donors whose projectile is far stronger than their stats suggest.");
             _rollDrops = Config.Bind("Drops", "RollStats", true,
                 "Consumable drops roll too: damage, radius, duration, heal and credit numbers vary within the rarity band. Their tooltips show the resulting values automatically.");
-            _promoteDropRarities = Config.Bind("Drops", "PromoteRarities", true,
-                "Reassign the strongest drops to Rare/UltraRare. All stock drops are Common, so the shop's Rare/UltraRare drop slots never appear; this turns them on and gives strong drops bigger roll bands.");
+            _promoteDropRarities = Config.Bind("Drops", "PromoteStrongDrops", false,
+                "Reassign the strongest drops to Rare/UltraRare. Off by default: every stock shop drop slot is Common, so a promoted drop can only be offered by a rarity-bumped slot - in practice it took the strongest drops out of the shop. Only sensible together with Shop.RarityBumps.");
             // Off by default: for units like the turret planter the authored skill IS the unit, so
             // swapping it silently deletes what the card was bought for.
             _skillReplaceChance = Config.Bind("Skills", "ReplaceExistingChance", 0f,
@@ -143,13 +144,15 @@ namespace RCM_Randomizer
             _enableHijack = Config.Bind("Skills", "EnableHijack", false,
                 "EXPERIMENTAL: the Hijack skill converts an enemy unit to your side via the game's own side-transition. Off until per-side bookkeeping is verified in-game.");
             _shopTweaks = Config.Bind("Shop", "SeededTweaks", true,
-                "Seeded shop variety: sales/markups, occasional rarity-upgraded slots, hides blank slots.");
+                "Seeded shop variety: sales (-30 percent) and markups (+25 percent) per slot, and blank slots are hidden.");
+            _shopRarityBumps = Config.Bind("Shop", "RarityBumps", false,
+                "Occasionally raise a shop slot's rarity before it draws. Off by default: a bumped slot draws from the Rare/UltraRare pool, which is small or empty until late progression, and an empty slot is hidden - playtests read it as the shop losing its options.");
             _auraTweaks = Config.Bind("Auras", "SeededTweaks", true,
                 "Support auras vary per seed: target count 2-5 and reach x0.8-1.3 for units with limited-target auras (Support Tank pattern).");
             _engineerVeterancy = Config.Bind("Engineers", "Veterancy", true,
-                "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (ranks 1-2 Common, 3-4 Rare, 5 UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
-            _engineerRankCostFactor = Config.Bind("Engineers", "VeterancyCostFactor", 3f,
-                new ConfigDescription("How much more an engineer rank costs than a normal unit's (3 = 6, 12, 18, 24, 30 credits; a placed building is worth its cost / 100, between 0.5 and 3).", new AcceptableValueRange<float>(1f, 10f)));
+                "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (bronze Common, silver Rare, gold UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
+            _engineerRankCostFactor = Config.Bind("Engineers", "CareerCostFactor", 2f,
+                new ConfigDescription("How much more an engineer rank costs than a normal unit's (2 = 12, 36, 96 credits; a placed building is worth its cost / 100, between 0.5 and 3).", new AcceptableValueRange<float>(1f, 10f)));
             _engineerTrait = Config.Bind("Engineers", "SeededTrait", true,
                 "Each seed gives the chosen engineer one global run trait (e.g. 'turrets +7 percent damage'), attributed in stat tooltips.");
             _enemyRolls = Config.Bind("Enemies", "RollStats", true,
@@ -157,14 +160,14 @@ namespace RCM_Randomizer
             _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
                 new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
             _veterancyChevrons = Config.Bind("Progression", "VeterancyChevrons", true,
-                "Multi-tier veterancy: units earn ranks from kills and show the rank in the veteran icon slot left of their health bar - bronze, silver, gold, then a second and a third gold chevron stacked on top. The stock game has the rank counter and the icon but nothing that ever earns or pays a rank.");
+                "Three-tier veterancy: units earn ranks from kills and show them in the veteran icon left of their health bar, tinted bronze, silver or gold. The stock game has the rank counter and the icon but nothing that ever earns or pays a rank.");
             Veterancy.Enabled = _veterancyChevrons.Value;
-            _veterancyRankCost = Config.Bind("Progression", "VeterancyKillsPerRank", 2f,
-                new ConfigDescription("Kill credits the FIRST rank costs; rank N costs this many times N, so each rank is slower than the last (2 = 2, 4, 6, 8, 10: 30 in total). A kill is worth the victim's cost / 100, between 0.25 and 2.5, so swarm spawns barely count and capital units count double. 0 = ranks are only granted by cards, unmetered.", new AcceptableValueRange<float>(0f, 10f)));
+            _veterancyRankCost = Config.Bind("Progression", "VeterancyBronzeCost", 6f,
+                new ConfigDescription("Kill credits the bronze rank costs. Silver costs 3 times that and gold 8 times (6 = 6, 18, 48: 72 in total). A kill is worth the victim's cost / 100, between 0.25 and 2.5, so swarm spawns barely count and capital units count double. 0 = ranks are only granted by cards, unmetered.", new AcceptableValueRange<float>(0f, 50f)));
             Veterancy.RankCost = _veterancyRankCost.Value;
             Veterancy.EscalatingRanks = _veterancyRankCost.Value > 0f;
-            _veterancyBonus = Config.Bind("Progression", "VeterancyBonusPerRank", 0.04f,
-                new ConfigDescription("Damage and max health a unit gains per rank (0.04 = 4 percent, 20 percent at the fifth rank). Both sides earn it. 0 = ranks are cosmetic unless a card pays them.", new AcceptableValueRange<float>(0f, 0.2f)));
+            _veterancyBonus = Config.Bind("Progression", "VeterancyBonusPerTier", 0.15f,
+                new ConfigDescription("Damage and max health a unit gains per tier (0.15 = 15 percent at bronze, 30 at silver, 45 at gold). Both sides earn it. 0 = ranks are cosmetic unless a card pays them.", new AcceptableValueRange<float>(0f, 0.5f)));
             Veterancy.Configure(_veterancyBonus.Value);
             _runPacing = Config.Bind("Progression", "PaceBlueprintsWithinRun", true,
                 "Within a run, blueprint rewards start at the cheap end of each rarity band and the ceiling rises as the run progresses, so the expensive units arrive later instead of on level one.");
@@ -253,7 +256,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -295,7 +298,7 @@ namespace RCM_Randomizer
                 RollEngine.HasSecondWeapon = PrefabHasChildTurret;
                 RollEngine.RoofTurretOptions = _roofTurrets.Value && Progression.IsUnlocked(1)
                     ? RoofTurrets.AvailableIds() : new List<string>();
-                ShopTweaks.Enabled = _shopTweaks.Value; ShopTweaks.Seed = seed; ShopTweaks.Luck = luck;
+                ShopTweaks.Enabled = _shopTweaks.Value; ShopTweaks.RarityBumps = _shopRarityBumps.Value; ShopTweaks.Seed = seed; ShopTweaks.Luck = luck;
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
                 if (_generatedDropCount.Value > 0) GeneratedDrops.Apply(seed, luck, _generatedDropCount.Value); // before ApplyRolls so they join the roll universe
@@ -839,7 +842,7 @@ namespace RCM_Randomizer
             RegisterChangesQuietly(EngineerCareerChangeId, changes,
                 new CardId(CardId.CardType.GlobalLocaId, Veterancy.TooltipLocaKey));
             _appliedChangeIds.Add(EngineerCareerChangeId);
-            RCMManager.Log($"Randomizer: engineer career open for {changes.Count} engineers (rank cost x{EngineerVeterancy.CostFactor:0.#}, bonus x{EngineerVeterancy.BonusFactor:0.#})");
+            RCMManager.Log($"Randomizer: engineer career open for {changes.Count} engineers (3 ranks, cost x{EngineerVeterancy.CostFactor:0.#}, bonus x{EngineerVeterancy.BonusFactor:0.#})");
         }
 
         const int WeaponPricingChangeId = -49_999;

@@ -68,12 +68,12 @@ namespace RCM_Randomizer
             new Spec
             {
                 Id = "veteran", Label = "Veteran", Power = 0.24f,
-                Description = "Every rank of veterancy is worth an extra 8 percent damage and half a point of armor.",
+                Description = "Every veterancy tier is worth an extra 10 percent damage and one point of armor.",
                 BuildEvents = () => new List<EntityEvent>
                 {
                     Event(EntityController.Event.OnRankChanged,
-                        RankScaled(EntityController.ChangeableValue.Damage, SpecificValueChange.AddType.Relative, 0.08f, "rcmVeterancyDamage"),
-                        RankScaled(EntityController.ChangeableValue.ArmorProtection, SpecificValueChange.AddType.Absolute, 0.5f, "rcmVeterancyArmor")),
+                        RankScaled(EntityController.ChangeableValue.Damage, SpecificValueChange.AddType.Relative, 0.10f, "rcmVeteranCardDamage"),
+                        RankScaled(EntityController.ChangeableValue.ArmorProtection, SpecificValueChange.AddType.Absolute, 1f, "rcmVeteranCardArmor")),
                 },
             },
             new Spec

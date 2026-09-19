@@ -82,7 +82,9 @@ namespace RCM_Randomizer
             row.inactive = false;
             row.isAllowedAsBlueprint = false;
             row.isAllowedForAi = false;
-            row.rarity = Rarity.Rare; // generated drops fill the once-hidden rare shop slots
+            // Common like every stock drop: shop drop slots are Common, and a Rare drop could only ever be
+            // offered by a rarity-bumped slot (Shop.RarityBumps, off by default)
+            row.rarity = ShopTweaks.RarityBumps ? Rarity.Rare : Rarity.Common;
             // the donor's own unlock level is a floor: a reskin of a late drop is never earlier
             int tier = Progression.TierOf(row.rarity, 0f);
             bool unlocked = Progression.IsUnlocked(tier);

@@ -18,6 +18,7 @@ namespace RCM_Randomizer
     public static class ShopTweaks
     {
         public static bool Enabled;
+        public static bool RarityBumps;
         public static int Seed;
         public static float Luck;
 
@@ -38,7 +39,7 @@ namespace RCM_Randomizer
             if (!Enabled) return;
             // occasional rarity upgrade, likelier with luck
             float bump = SlotRoll(SlotKey(slot), "rarity", out _);
-            if (bump < 0.10f + 0.06f * Math.Min(2f, Luck) && rarity != Rarity.UltraRare)
+            if (RarityBumps && bump < 0.10f + 0.06f * Math.Min(2f, Luck) && rarity != Rarity.UltraRare)
                 rarity = rarity == Rarity.Common ? Rarity.Rare : Rarity.UltraRare;
 
             float price = SlotRoll(SlotKey(slot), "price", out _);

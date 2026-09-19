@@ -6,44 +6,44 @@ using UnityEngine.UI;
 
 namespace RCM_Randomizer
 {
-    // Multi-tier veterancy, Warzone 2100 style. What the stock game actually has (read off the
+    // Three-tier veterancy: bronze, silver, gold. What the stock game actually has (read off the
     // prefabs with Diagnostics.DumpPrefabFacts, not assumed): a CurrentRank counter from 0 to
     // MaxRank on every entity and one icon that lights at the last rank - and nothing else. No unit
     // prefab, prefab mod or start mod ever calls RankUp, and the only thing that reacts to a rank
     // is one upgrade card. So out of the box units neither earn ranks nor gain from them.
     //
     // This supplies the whole ladder:
-    //   earning - kills bank credits, weighted by what the victim was worth, and rank N costs
-    //             RankCost * N credits, so each rank is slower than the last;
-    //   payout  - a small permanent bonus per rank, through the game's own rank-scaled value
-    //             change (one mod on OnRankChanged, rewritten at each rank, never stacking);
-    //   display - the rank is drawn INSIDE the game's veteran icon slot. That slot is a child of a
-    //             HorizontalLayoutGroup (icon, elite star, bars, armor badge); 0.9.0 cloned the slot
-    //             itself, the layout group appended the clone after the armor badge, and the second
-    //             chevron appeared at the far end of the health bar.
+    //   earning - kills bank credits, weighted by what the victim was worth. Bronze costs
+    //             BronzeCost, silver three times that, gold eight times: 6 / 18 / 48 by default, so
+    //             a gold unit has destroyed about 72 tanks' worth and is a rare sight;
+    //   payout  - BonusPerTier damage and max health per tier (15 / 30 / 45 percent), through the
+    //             game's own rank-scaled value change (one mod on OnRankChanged, rewritten at each
+    //             rank, never stacking);
+    //   display - the game's veteran icon, tinted bronze, silver or gold. The icon is a slot inside
+    //             a HorizontalLayoutGroup, so nothing is ever cloned into that row (0.9.0 did, and
+    //             the copy landed beyond the armor badge), and the sprite is already a stack of
+    //             chevrons, so nothing is stacked on it either (0.9.1's fourth and fifth rank did,
+    //             and read as a tall yellow ladder).
+    // The table gives most units maxRank 5; only the first three are used.
     public static class Veterancy
     {
         public static bool Enabled;
         public static bool EarnFromKills = true;
-        public static float BonusPerRank = 0.04f;   // damage and max health, per rank
+        public static float BonusPerRank = 0.15f;   // damage and max health, per tier
 
-        // rank N costs RankCost * N credits; a 100-credit victim is one credit
         public static bool EscalatingRanks = true;
-        public static float RankCost = 2f;
+        public static float RankCost = 6f;          // bronze; a 100-credit victim is one credit
+        static readonly float[] TierCostFactor = { 1f, 3f, 8f };
 
         const string MarkPrefix = "rcmRankMark";
         const string ModName = "rcmmod_veterancy";
         const string LocaKey = "rcm_randomizer_veterancy";
-        const int Tiers = 5;
+        public const int Tiers = 3;
 
-        // Colour carries the first three ranks, stacking the last two: at the icon's size on the
-        // field (about a dozen pixels) colour reads instantly and three tiny marks side by side
-        // do not. bronze, silver, gold, then a second and third gold chevron stacked upward.
         static readonly Color Bronze = new Color(0.80f, 0.50f, 0.28f, 1f);
         static readonly Color Silver = new Color(0.82f, 0.86f, 0.92f, 1f);
         static readonly Color Gold = new Color(1.00f, 0.80f, 0.22f, 1f);
-        static readonly Color[] TierColor = { Bronze, Silver, Gold, Gold, Gold };
-        static readonly int[] TierMarks = { 1, 1, 1, 2, 3 };
+        static readonly Color[] TierColor = { Bronze, Silver, Gold };
 
         // instance id -> credits banked toward the next rank
         static readonly Dictionary<int, float> Credits = new Dictionary<int, float>();
@@ -52,21 +52,18 @@ namespace RCM_Randomizer
 
         // an engineer's career is slower and worth more: see EngineerVeterancy
         static float CostOf(EntityController entity, int rank)
-            => RankCost * Math.Max(1, rank) * (EngineerVeterancy.Applies(entity) ? EngineerVeterancy.CostFactor : 1f);
+            => RankCost * TierCostFactor[Mathf.Clamp(rank, 1, Tiers) - 1] * (EngineerVeterancy.Applies(entity) ? EngineerVeterancy.CostFactor : 1f);
 
-        public static string Describe(int rank) => rank <= 0 ? "unranked" : new[] { "bronze", "silver", "gold", "double gold", "triple gold" }[Math.Min(rank, Tiers) - 1];
+        static int MaxTier(EntityController entity) => Math.Min(entity.MaxRank, Tiers);
 
-        static int TierOf(EntityController entity)
-        {
-            int max = entity.MaxRank;
-            if (max <= 0 || entity.CurrentRank <= 0) return 0;
-            // units with a shorter ladder still end on the top tier
-            return Mathf.Clamp(Mathf.CeilToInt(entity.CurrentRank * (float)Tiers / max), 1, Tiers);
-        }
+        public static string Describe(int tier) => tier <= 0 ? "unranked" : new[] { "bronze", "silver", "gold" }[Math.Min(tier, Tiers) - 1];
+
+        static int TierOf(EntityController entity) => Mathf.Clamp(entity.CurrentRank, 0, MaxTier(entity));
+
 
         internal static void AddCredits(EntityController entity, float amount)
         {
-            int max = entity.MaxRank;
+            int max = MaxTier(entity);
             if (max <= 0 || entity.CurrentRank >= max) return;
 
             int id = entity.GetInstanceID();
@@ -141,43 +138,20 @@ namespace RCM_Randomizer
             if (slot == null) return;
 
             int tier = TierOf(entity);
+            if (EngineerVeterancy.Applies(entity)) EngineerVeterancy.OnDisplay(entity, tier);
             slot.SetActive(tier >= 1);
             if (tier < 1) return;
 
-            Image first = null;
+            bool tinted = false;
             foreach (var image in slot.GetComponentsInChildren<Image>(true))
-                if (!image.name.StartsWith(MarkPrefix, StringComparison.Ordinal)) { first = image; break; }
-            if (first == null) return;
-
-            first.color = TierColor[tier - 1];
-            int marks = TierMarks[tier - 1];
-            for (int i = 2; i <= 3; i++)
             {
-                var existing = slot.transform.Find(MarkPrefix + i);
-                if (i > marks)
-                {
-                    if (existing != null) existing.gameObject.SetActive(false);
-                    continue;
-                }
-                var mark = existing != null ? existing.gameObject : CreateMark(slot.transform, first, i);
-                mark.SetActive(true);
-                var markImage = mark.GetComponent<Image>();
-                if (markImage != null) markImage.color = TierColor[tier - 1];
+                // marks stacked by 0.9.1 can survive on a pooled body
+                if (image.name.StartsWith(MarkPrefix, StringComparison.Ordinal)) { image.gameObject.SetActive(false); continue; }
+                if (!tinted) image.color = TierColor[tier - 1];
+                tinted = true;
             }
         }
 
-        static GameObject CreateMark(Transform slot, Image template, int index)
-        {
-            var clone = UnityEngine.Object.Instantiate(template.gameObject, slot);
-            clone.name = MarkPrefix + index;
-            var from = template.rectTransform;
-            var to = clone.GetComponent<RectTransform>();
-            // the slot is a fixed 1.4 x 1.4 cell and is not itself a layout group, so positions
-            // inside it hold. rect can still be zero before the first layout pass.
-            float height = from.rect.height > 0.01f ? from.rect.height : 1.27f;
-            to.anchoredPosition = from.anchoredPosition + new Vector2(0f, height * 0.55f * (index - 1));
-            return clone;
-        }
 
         [HarmonyPatch(typeof(EntityController), "OnHasKilledEntity")]
         static class Patch_OnHasKilledEntity
