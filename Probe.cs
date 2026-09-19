@@ -34,6 +34,25 @@ namespace RCM_Randomizer
                 }
 
                 sb.AppendLine();
+                sb.AppendLine("# pairs: base range/level/cost <- donor range/level/cost | cooldown x, damage x");
+                try
+                {
+                    int paired = 0, total = 0;
+                    foreach (string id in entityIds.OrderBy(s => s, StringComparer.Ordinal))
+                    {
+                        total++;
+                        string donor = donorOf != null ? donorOf(id) : null;
+                        if (string.IsNullOrEmpty(donor)) continue;
+                        paired++;
+                        float bc = EntityBalancingStore.Attack1Cooldown(id, true), dc = EntityBalancingStore.Attack1Cooldown(donor, true);
+                        sb.AppendLine($"    {id} r={F(EntityBalancingStore.WeaponRange(id, true))} L{EntityBalancingStore.NeededExperienceLevel(id)} c={EntityBalancingStore.Cost(id, true)}"
+                            + $" <- {donor} r={F(EntityBalancingStore.WeaponRange(donor, true))} L{EntityBalancingStore.NeededExperienceLevel(donor)} c={EntityBalancingStore.Cost(donor, true)}"
+                            + $" | cd x{F(bc > 0.01f ? dc / bc : 1f)} now: cd={F(EntityBalancingStore.Attack1Cooldown(id))} dmg={F(EntityBalancingStore.Damage1(id))} (was {F(EntityBalancingStore.Damage1(id, true))})");
+                    }
+                    sb.AppendLine($"    {paired} of {total} listed entities carry a donor turret");
+                }
+                catch (Exception e) { sb.AppendLine("pairs FAILED " + e.Message); }
+                sb.AppendLine();
                 sb.AppendLine("# specialists: id | relicId | associated relics (rarity, card changes, relic prefab events, referenced in unit events)");
                 foreach (string specialist in SpecialistBalancingStore.SpecialistIds(false))
                 {

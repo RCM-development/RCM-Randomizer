@@ -4,6 +4,13 @@
 
 Playtest fixes. Every cause below was read off the game's own prefab data with the new `Diagnostics.DumpPrefabFacts` dump rather than inferred from the symptom.
 
+### Fifth playtest round
+
+- **Vanilla units stay in the game.** Only a share of the roster is mixed on a given seed (`TurretShuffle.MixedShare`, default 0.5); the rest keeps its own turret, and which units those are changes with the seed. A unit the map left alone really is stock now: the selector used to answer "no opinion" for it, which handed it to the mixer's own per-spawn random donor.
+- **A donor has to fit the chassis.** Size bands only compared model footprints, which gave an 18-range deployable Artillery Tank a 3.8-range walker gun and T0 artillery a refinery spawner's sidearm. A pairing now needs: the donor's range within 0.6x-1.7x of the chassis' own (melee hosts take guns up to range 6), so artillery stays artillery; a donor that does not unlock at a higher experience level than the chassis, so stronger weapons arrive with the level that unlocks them; a donor at most 3x the chassis' price; and a real combat unit as donor (no spawner, refinery, harvester, engineer or factory). A chassis nothing fits stays stock.
+- **Hosts whose skill fires projectiles keep their weapon** (RCM-UnitsMixNMatch). Their skill shots resolve damage in the unit's own attack-hit event, which a swap replaces: Missile Artillery + Laser Cannon fired its skill missiles for 0 damage and no splash.
+- Titans are back at progression tier 4 by default in every respect; a test profile that lowered `Titans.UnlockTier` sees them at level 0.
+
 ### Fourth playtest round
 
 - **A swapped weapon now brings its own rhythm.** It used to fire at the host's cooldown: the Multi Grenade Van's salvo (every 5 s) on a Planter Tank (1.2 s) came four times as often, T0 artillery nearly twice. The cooldown is now the donor's, and damage per shot is rescaled so the chassis keeps exactly its own damage x barrels / cooldown. Range and splash travel as before.

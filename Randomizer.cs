@@ -43,6 +43,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _turretShuffle;
         ConfigEntry<float> _turretMaxSizeRatio;
         ConfigEntry<bool> _weaponPricing;
+        ConfigEntry<float> _mixedShare;
         ConfigEntry<string> _weaponPriceOverrides;
         ConfigEntry<bool> _rollDrops;
         ConfigEntry<bool> _promoteDropRarities;
@@ -114,6 +115,8 @@ namespace RCM_Randomizer
                 "Seeded turret assignment for RCM_UnitsMixNMatch (if installed): every unit keeps the same donor turret for the whole run instead of rerolling per spawn.");
             _turretMaxSizeRatio = Config.Bind("TurretShuffle", "MaxSizeRatio", 2.5f,
                 new ConfigDescription("Units only swap turrets within a size band: biggest/smallest model footprint in a band stays under this ratio, so tiny bodies never carry huge guns. Higher = wilder combinations.", new AcceptableValueRange<float>(1f, 10f)));
+            _mixedShare = Config.Bind("TurretShuffle", "MixedShare", 0.5f,
+                new ConfigDescription("Share of the roster that gets another unit's turret on a given seed. The rest stays vanilla, so stock units remain playable next to the mixes; which ones changes with the seed. 1 = mix everything that can be mixed.", new AcceptableValueRange<float>(0f, 1f)));
             _weaponPricing = Config.Bind("TurretShuffle", "WeaponPricing", true,
                 "Receiving another unit's weapon changes the card's cost: extra barrels are priced by the budget model, and per-donor overrides cover projectile quality the data can't see.");
             _weaponPriceOverrides = Config.Bind("TurretShuffle", "WeaponPriceOverrides", "CF2=1.6",
@@ -278,7 +281,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -780,6 +783,49 @@ namespace RCM_Randomizer
             catch { return false; }
         }
 
+        // Does this donor's weapon belong on this chassis? Size bands only compare model footprints;
+        // playtests produced an 18-range deployable artillery truck with a 3.8-range walker gun, T0
+        // artillery with a refinery spawner's sidearm (a level-50 unit's, on a level-0 card), and a
+        // 140-credit support tank with an 800-credit beam.
+        //  - weapon class: the donor's range within 0.6x - 1.7x of the chassis' own, so artillery stays
+        //    artillery and brawlers stay brawlers (melee hosts, range 0, take short guns up to 6);
+        //  - level: the donor must not unlock later than the chassis does - a stronger weapon arrives
+        //    with the level that unlocks it, not smuggled in on an early card;
+        //  - price class: no gun from a unit more than 3x the price of the chassis;
+        //  - a real combat unit: not a spawner, refinery, harvester, engineer or factory sidearm.
+        static bool WeaponFits(string baseId, string donorId)
+        {
+            try
+            {
+                const UnitRole nonCombat = UnitRole.Spawner | UnitRole.Refinery | UnitRole.Harvester | UnitRole.Engineer | UnitRole.Builder | UnitRole.Factory;
+                if (EntityBalancingStore.HasRole(donorId, nonCombat)) return false;
+
+                float baseRange = EntityBalancingStore.WeaponRange(baseId, returnOriginalValueFromBalancingFile: true);
+                float donorRange = EntityBalancingStore.WeaponRange(donorId, returnOriginalValueFromBalancingFile: true);
+                if (baseRange < 0.01f) { if (donorRange > 6f) return false; }
+                else if (donorRange < baseRange * 0.6f || donorRange > baseRange * 1.7f) return false;
+
+                if (UnlockLevelOf(donorId) > UnlockLevelOf(baseId)) return false;
+
+                float baseCost = CardCostOf(baseId), donorCost = CardCostOf(donorId);
+                if (baseCost > 1f && donorCost > baseCost * 3f) return false;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        // a unit unlocks with its factory card; 999/1000 are the table's "never" and count as 0 here
+        // (enemy-only units have no unlock level of their own)
+        static int UnlockLevelOf(string entityId)
+        {
+            int level = EntityBalancingStore.NeededExperienceLevel(entityId);
+            string factory = EntityBalancingStore.FactoryEntityId(entityId);
+            if (factory != null) level = Math.Max(level, EntityBalancingStore.NeededExperienceLevel(factory));
+            return level >= 200 ? 0 : level;
+        }
+
+        static float CardCostOf(string entityId) => EntityBalancingStore.Cost(entityId, returnOriginalValueFromBalancingFile: true);
+
         // Optional static bool(string) on the mixer, bound by name: newer mixer builds answer what
         // a unit can give or receive, older ones simply lack the method and the filter is skipped.
         static Func<string, bool> MixerPredicate(Type mixerType, string name)
@@ -829,12 +875,16 @@ namespace RCM_Randomizer
             // mismatches cannot happen; older builds just skip the filter
             Func<string, bool> canDonate = MixerPredicate(mixerType, "CanDonate");
             Func<string, bool> canReceive = MixerPredicate(mixerType, "CanReceive");
-            _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value, canDonate, canReceive);
+            _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value, canDonate, canReceive,
+                WeaponFits, _mixedShare.Value);
             var map = _donorMap;
             selectorField.SetValue(null, new Func<string, string>(id =>
             {
                 if (map.TryGetValue(id, out var donor)) return donor;
-                return IsPlayerRelevant(id) ? null : "";
+                // "" = leave this unit alone. null would hand it to the mixer's own per-spawn RANDOM donor,
+                // so every unit the map deliberately left stock (vanilla share, nothing fits, cannot
+                // receive) would have been mixed anyway, differently on every spawn.
+                return "";
             }));
             MixedUnitPresentation.ApplyMixedNames(_donorMap);
             MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns

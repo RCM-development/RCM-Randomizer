@@ -167,7 +167,9 @@ namespace RCM_Randomizer
         public static Dictionary<string, string> GenerateDonorMap(int seed, IEnumerable<string> supportedEntities,
                                                                   Func<string, float> sizeOf = null, float maxSizeRatio = 2.5f,
                                                                   Func<string, bool> canDonate = null,
-                                                                  Func<string, bool> canReceive = null)
+                                                                  Func<string, bool> canReceive = null,
+                                                                  Func<string, string, bool> compatible = null,
+                                                                  float mixedShare = 1f)
         {
             var bases = supportedEntities.Distinct().ToList();
             bases.Sort(StringComparer.Ordinal);
@@ -193,9 +195,22 @@ namespace RCM_Randomizer
                     // body would keep a visible gun that never fires) gets no pairing at all, so
                     // it is neither renamed nor priced as a mix
                     if (canReceive != null && !canReceive(baseId)) continue;
-                    string donor = usable[next % usable.Count];
-                    if (donor == baseId && usable.Count > 1) donor = usable[(next + 1) % usable.Count];
-                    if (donor == baseId) continue; // its only usable donor is itself: stock
+                    // Part of the roster stays vanilla on every seed, so stock units remain playable
+                    // next to the mixes. Own stream per unit: the share can change without reshuffling
+                    // who is paired with whom.
+                    if (mixedShare < 1f && new Random(seed ^ Fnv1a("vanilla:" + baseId)).NextDouble() >= mixedShare) continue;
+                    // the next usable donor that FITS this base (weapon class, level, price class); a base
+                    // nothing fits stays stock rather than carry a gun that contradicts what it is
+                    string donor = null;
+                    for (int step = 0; step < usable.Count; step++)
+                    {
+                        string candidate = usable[(next + step) % usable.Count];
+                        if (candidate == baseId) continue;
+                        if (compatible != null && !compatible(baseId, candidate)) continue;
+                        donor = candidate;
+                        break;
+                    }
+                    if (donor == null) continue;
                     map[baseId] = donor;
                     next++;
                 }
