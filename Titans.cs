@@ -63,8 +63,10 @@ namespace RCM_Randomizer
                 string unitId = UnitPrefix + i, foundryId = FoundryPrefix + i;
 
                 unit.entityId = unitId;
-                unit.maxHealth *= 5; unit.maxShield *= 4; unit.armorProtection += 2f;
-                unit.damage1 *= 2.5f; unit.damage2 *= 2.5f;
+                unit.maxHealth *= 6; unit.maxShield *= 5; unit.armorProtection += 3f;
+                unit.damage1 *= 4f; unit.damage2 *= 4f;
+                // the skill is part of the firepower: cheaper to cast and a deeper pool to cast it from
+                unit.skillManaCost *= 0.6f; unit.maxMana = (int)Math.Round(unit.maxMana * 1.5f);
                 unit.weaponRange *= 1.2f; unit.effectRadius1 *= 1.3f; unit.effectRadius2 *= 1.3f;
                 unit.moveSpeed *= 0.7f; unit.sightRadius = (int)Math.Round(unit.sightRadius * 1.15f);
                 unit.cost *= 5; unit.productionDuration *= 3f; unit.maxCapacity = 1; unit.combatValue *= 4;
@@ -93,9 +95,10 @@ namespace RCM_Randomizer
                 var turret = Take(turrets, seed, "titanturret:" + i);
                 string baseId = turret.entityId, id = TurretPrefix + i;
                 turret.entityId = id;
-                turret.maxHealth *= 4; turret.maxShield *= 3; turret.armorProtection += 2f;
-                turret.damage1 *= 2.5f; turret.damage2 *= 2.5f;
-                turret.weaponRange *= 1.35f; turret.effectRadius1 *= 1.3f; turret.sightRadius = (int)Math.Round(turret.sightRadius * 1.35f);
+                turret.maxHealth *= 5; turret.maxShield *= 4; turret.armorProtection += 3f;
+                turret.damage1 *= 4f; turret.damage2 *= 4f;
+                turret.skillManaCost *= 0.6f; turret.maxMana = (int)Math.Round(turret.maxMana * 1.5f);
+                turret.weaponRange *= 1.5f; turret.effectRadius1 *= 1.4f; turret.sightRadius = (int)Math.Round(turret.sightRadius * 1.5f);
                 turret.cost *= 5; turret.maxCapacity = 2; turret.combatValue *= 4;
                 turret.coinsAmount = (int)(turret.coinsAmount * 2.5f);
                 Finish(ref turret, unlocked, needed);
@@ -114,7 +117,15 @@ namespace RCM_Randomizer
 
         static string NameOf(string entityId)
         {
-            try { return Loca.BlueprintName(entityId); } catch { return entityId; }
+            // the base card may already be renamed "Cannon Turret + Boulder Turret" by the turret shuffle;
+            // a Titan is never mixed, so it must not inherit a donor it does not carry
+            try
+            {
+                string name = Loca.BlueprintName(entityId);
+                int plus = name.IndexOf(" + ", StringComparison.Ordinal);
+                return plus > 0 ? name.Substring(0, plus) : name;
+            }
+            catch { return entityId; }
         }
 
         static bool IsHeavyUnit(string unitId)
@@ -196,6 +207,30 @@ namespace RCM_Randomizer
         public static void ReapplyLoca()
         {
             foreach (var entry in LocaEntries) WriteLoca(entry.Key, entry.Value.Key, entry.Value.Value);
+        }
+
+        // ---- when they may be offered ----------------------------------------------------------
+
+        // Run pacing alone does not hold them back: it keeps the cheapest part of each rarity band but
+        // never fewer than eight cards, and the UltraRare band is small - so with the tier unlocked a
+        // Titan turned up as the first blueprint of a first run. Titans are the END of a run: they
+        // only enter the offer pools once this much of it lies behind.
+        public static float EarliestRunProgress = 0.6f;
+
+        [HarmonyPatch(typeof(EntityBalancingStore), "AllEntityIdsAllowedAsBlueprints",
+            new Type[] { typeof(Rarity), typeof(bool?), typeof(bool), typeof(Tech), typeof(int?), typeof(int?) })]
+        static class Patch_BlueprintPool
+        {
+            [HarmonyPriority(Priority.First)] // before run pacing counts what is left
+            static void Postfix(List<string> __result)
+            {
+                try
+                {
+                    if (__result == null || Game.StageMap == null) { __result?.RemoveAll(IsGenerated); return; }
+                    if (RunPacing.Progress() < EarliestRunProgress) __result.RemoveAll(IsGenerated);
+                }
+                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: titan pool gate failed (" + e.Message + ")"); }
+            }
         }
 
         // ---- spawning --------------------------------------------------------------------------

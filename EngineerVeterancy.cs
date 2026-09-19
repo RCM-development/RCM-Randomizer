@@ -11,19 +11,20 @@ namespace RCM_Randomizer
 {
     // The engineer as a commander with a career. Differences from ordinary veterancy:
     //   - engineers have maxRank 0 in the balancing table, so the ladder is opened for them with a
-    //     card change (MaxRank +5, registered by the plugin);
+    //     card change (MaxRank up to the three tiers, registered by the plugin);
     //   - an engineer does not fight, it builds: every placed building banks credits (its cost /
     //     100, between 0.5 and 3). Kills count too, for the engineers that carry a gun;
     //   - ranks cost CostFactor times the normal price, pay double the normal bonus, and each new
     //     rank grants one random hack, a real run hack like any other;
     //   - the career belongs to the RUN, not the battle: Init resets CurrentRank every battle, so
     //     rank, credits and the hacks already handed out live in a sidecar beside the seed file,
-    //     keyed by the run's seed. Five ranks means five hacks per run, not five per battle.
+    //     keyed by the run's seed: three ranks, at most three hacks per run. A killed engineer
+    //     loses rank and credits (not the hacks already in the deck).
     // Shown on the unit while it is selected: rank and the hacks its career has earned.
     public static class EngineerVeterancy
     {
         public static bool Enabled;
-        public static float CostFactor = 2f;
+        public static float CostFactor = 4f;
         public const float BonusFactor = 2f;
         public const int Ranks = Veterancy.Tiers;
 
@@ -203,6 +204,33 @@ namespace RCM_Randomizer
             var slot = baseParams.veteranIconGameObject != null ? baseParams.veteranIconGameObject.GetComponent<RectTransform>() : null;
             if (slot != null && slot.rect.width > 0.1f) slotWidth = slot.rect.width + 0.1f;
             badge.anchoredPosition = new Vector2(tier >= 1 ? home - slotWidth : home, badge.anchoredPosition.y);
+        }
+
+        // ---- a career ends with the engineer ---------------------------------------------------
+
+        // Rank and credits carry from battle to battle, so they have to be something that can be
+        // lost: an engineer that is KILLED starts again from nothing. Hacks already granted stay in
+        // the run's deck, and since a career never grants more hacks than it has ranks, dying and
+        // re-ranking does not farm them. Leaving a battle (scene teardown) is not a death.
+        [HarmonyPatch(typeof(EntityController), "Destroy")]
+        static class Patch_Destroy
+        {
+            static void Prefix(EntityController __instance, bool withoutTriggeringDestructionActions, EntityController originator)
+            {
+                try
+                {
+                    if (withoutTriggeringDestructionActions || !Applies(__instance)) return;
+                    if (originator == null && __instance.CurrentHealth > 0.01f) return;
+                    var career = Current();
+                    if (career.Rank <= 0 && career.Credits <= 0f) return;
+                    TestMod.RCMManager.Log($"Randomizer: engineer killed - career reset ({Veterancy.Describe(career.Rank)}, {career.Credits:0.#} credits lost; {career.Hacks.Count} hacks stay)");
+                    ShowMessageBox.ShowMessage_Static("Engineer lost: its veterancy is gone.", 0, null, isAlreadyLocalized: true);
+                    career.Rank = 0;
+                    career.Credits = 0f;
+                    Save();
+                }
+                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer career reset failed (" + e.Message + ")"); }
+            }
         }
 
         // ---- earning from building -------------------------------------------------------------

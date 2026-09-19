@@ -32,7 +32,7 @@ namespace RCM_Randomizer
         static string _lastLogged;
 
         // 0 = first level of the run, 1 = final boss.
-        static float Progress()
+        internal static float Progress()
         {
             var stageMap = Game.StageMap;
             if (stageMap == null) return 1f; // not in a run: never restrict

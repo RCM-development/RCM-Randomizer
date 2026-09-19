@@ -180,10 +180,10 @@ namespace RCM_Randomizer
             foreach (var ev in c.events)
             {
                 var parts = new List<string>();
-                parts.Add(string.Join(",", ev.actions.Where(a => a != null).Select(a => a.GetType().Name)));
+                parts.Add(string.Join(",", ev.actions.Where(a => a != null).Select(DescribeAction)));
                 foreach (var cond in ev.conditionalActions)
                     parts.Add("[" + string.Join("&", cond.eventConditions.Select(DescribeCondition)) + " -> " +
-                        string.Join(",", cond.actions.Where(a => a != null).Select(a => a.GetType().Name)) + "]");
+                        string.Join(",", cond.actions.Where(a => a != null).Select(DescribeAction)) + "]");
                 sb.AppendLine($"    event: {ev.@event} -> {string.Join(" ", parts)}");
             }
         }
@@ -204,6 +204,17 @@ namespace RCM_Randomizer
         static string DescribeAction(IEntityAction action)
         {
             if (action is RankUp rankUp) return "RankUp(" + rankUp.amount + ")";
+            if (action is ShootProjectile shot)
+            {
+                string mover = "none", imprecision = "";
+                if (shot.projectilePrefab != null)
+                {
+                    mover = shot.projectilePrefab.GetType().Name;
+                    var field = shot.projectilePrefab.GetType().GetField("imprecisionRadius");
+                    if (field != null) imprecision = " imprecision=" + F((float)field.GetValue(shot.projectilePrefab));
+                }
+                return $"ShootProjectile({mover}{imprecision} fromIdent={(shot.chooseTargetFromEntityIdentifier ? shot.multipleTargetEntityIdentifier : "-")})";
+            }
             if (action is ChangeSpecificValue change) return $"ChangeSpecificValue({change.valueToChange} {change.addType} x{F(change.multiplier)} src={change.valueToAddSource} stack={change.isStackable} {change.durationType})";
             return action.GetType().Name;
         }

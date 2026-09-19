@@ -237,11 +237,16 @@ namespace RCM_Randomizer
             {
                 if (!IsGenerated(relicId)) return true;
                 var stub = new GameObject("GeneratedRelic " + relicId);
+                // inactive while it is built: AddComponent runs Awake at once on an active object, and
+                // RelicController.Awake translates relicId - still null at that point - and threw a
+                // NullReferenceException for every generated hack shown (16 in one playtest log)
+                stub.SetActive(false);
                 stub.transform.SetParent(parent, false);
                 var controller = stub.AddComponent<RelicController>();
                 controller.relicId = relicId;
                 controller.entityIdentifiers = new List<EntityIdentifier>();
                 controller.events = new List<RelicEvent>();
+                stub.SetActive(true);
                 return false;
             }
         }

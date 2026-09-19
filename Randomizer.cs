@@ -76,6 +76,9 @@ namespace RCM_Randomizer
         ConfigEntry<int> _titanTurretCount;
         ConfigEntry<int> _titanUnlockTier;
         ConfigEntry<bool> _enemyTitans;
+        ConfigEntry<float> _titanEarliest;
+        ConfigEntry<string> _scatterWeapons;
+        ConfigEntry<float> _scatterRadius;
         ConfigEntry<bool> _auraTweaks;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
@@ -154,18 +157,24 @@ namespace RCM_Randomizer
                 "Occasionally raise a shop slot's rarity before it draws. Off by default: a bumped slot draws from the Rare/UltraRare pool, which is small or empty until late progression, and an empty slot is hidden - playtests read it as the shop losing its options.");
             _auraTweaks = Config.Bind("Auras", "SeededTweaks", true,
                 "Support auras vary per seed: target count 2-5 and reach x0.8-1.3 for units with limited-target auras (Support Tank pattern).");
+            _scatterWeapons = Config.Bind("Weapons", "ScatterWeaponsOf", "GrenadeLauncherVan",
+                "Comma-separated entityIds whose guided projectiles are lobbed instead: they fly to where the target was at launch, plus a random offset, and no longer track it. Applies to the unit itself and to any chassis carrying its weapon. The Multi Grenade Van's grenades are stock homing with perfect accuracy.");
+            _scatterRadius = Config.Bind("Weapons", "ScatterRadius", 1f,
+                new ConfigDescription("Scatter radius in cells for those projectiles. 0 = leave them homing.", new AcceptableValueRange<float>(0f, 4f)));
             _titans = Config.Bind("Titans", "Enabled", true,
                 "Super units: a seeded few of the heaviest mechs, tanks and turrets return as Titans - 1.6x the size, 5x the health, 2.5x the damage, slower, one on the field at a time, five times the price and built in their own UltraRare Titan Foundry. Removing the mod breaks a save that owns one, like any generated card.");
             _titanUnitCount = Config.Bind("Titans", "UnitCount", 3, new ConfigDescription("Titan mechs/tanks per seed.", new AcceptableValueRange<int>(0, 6)));
             _titanTurretCount = Config.Bind("Titans", "TurretCount", 2, new ConfigDescription("Titan turrets per seed.", new AcceptableValueRange<int>(0, 4)));
             _titanUnlockTier = Config.Bind("Titans", "UnlockTier", 4,
                 new ConfigDescription("Progression tier (0-4) that opens Titans. 4 is the top of the ladder and needs ascension, heat or the hardest difficulty on top of experience. Lower it to try them out.", new AcceptableValueRange<int>(0, 4)));
+            _titanEarliest = Config.Bind("Titans", "EarliestRunProgress", 0.6f,
+                new ConfigDescription("How much of a run must lie behind before a Titan can be offered as a blueprint (0.6 = the last 40 percent). Independent of UnlockTier, which decides whether a profile has them at all.", new AcceptableValueRange<float>(0f, 0.95f)));
             _enemyTitans = Config.Bind("Titans", "EnemyTitans", true,
                 "In the last third of a run, about 4 percent of the enemy's heavier units (cost 200+) spawn as Titans: 1.5x the size, 4x the health, double damage. Seeded by the run.");
             _engineerVeterancy = Config.Bind("Engineers", "Veterancy", true,
                 "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (bronze Common, silver Rare, gold UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
-            _engineerRankCostFactor = Config.Bind("Engineers", "CareerCostFactor", 2f,
-                new ConfigDescription("How much more an engineer rank costs than a normal unit's (2 = 12, 36, 96 credits; a placed building is worth its cost / 100, between 0.5 and 3).", new AcceptableValueRange<float>(1f, 10f)));
+            _engineerRankCostFactor = Config.Bind("Engineers", "CareerRankCostFactor", 4f,
+                new ConfigDescription("How much more an engineer rank costs than a normal unit's (4 = 24, 72, 192 credits; a placed building is worth its cost / 100, between 0.5 and 3). The career carries from battle to battle within a run, and is lost entirely if the engineer is killed.", new AcceptableValueRange<float>(1f, 10f)));
             _engineerTrait = Config.Bind("Engineers", "SeededTrait", true,
                 "Each seed gives the chosen engineer one global run trait (e.g. 'turrets +7 percent damage'), attributed in stat tooltips.");
             _enemyRolls = Config.Bind("Enemies", "RollStats", true,
@@ -316,7 +325,8 @@ namespace RCM_Randomizer
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
                 if (_generatedDropCount.Value > 0) GeneratedDrops.Apply(seed, luck, _generatedDropCount.Value); // before ApplyRolls so they join the roll universe
-                Titans.Enabled = _titans.Value; Titans.UnlockTier = _titanUnlockTier.Value; Titans.EnemyTitans = _enemyTitans.Value;
+                GrenadeScatter.Configure(_scatterWeapons.Value, _scatterRadius.Value);
+                Titans.Enabled = _titans.Value; Titans.UnlockTier = _titanUnlockTier.Value; Titans.EnemyTitans = _enemyTitans.Value; Titans.EarliestRunProgress = _titanEarliest.Value;
                 Titans.Apply(seed, _titanUnitCount.Value, _titanTurretCount.Value);
                 if (_capturedTechCount.Value > 0) ApplyCapturedTech(seed);
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
@@ -876,9 +886,24 @@ namespace RCM_Randomizer
                 float costMult;
                 float rangeRatio = 1f;
                 float splashDelta = 0f;
+                float cooldownRatio = 1f, damageRatio = 1f;
                 try
                 {
-                    float delta = RollEngine.WeaponTransferPowerDelta(pair.Key, pair.Value);
+                    // The weapon brings its RHYTHM, the chassis keeps its DPS. A swapped gun used to fire at
+                    // the host's cooldown: the Multi Grenade Van's salvo (every 5 s) on a Planter Tank
+                    // (1.2 s) came four times as often, T0 artillery shells nearly twice. Now the cooldown
+                    // is the donor's, and damage per shot is rescaled so that damage x barrels / cooldown
+                    // stays exactly what the chassis had. Barrels therefore no longer need pricing.
+                    float delta = 0f;
+                    float baseCooldown = EntityBalancingStore.Attack1Cooldown(pair.Key, returnOriginalValueFromBalancingFile: true);
+                    float donorCooldown = EntityBalancingStore.Attack1Cooldown(pair.Value, returnOriginalValueFromBalancingFile: true);
+                    if (baseCooldown > 0.01f && donorCooldown > 0.01f)
+                    {
+                        float baseBarrels = Math.Max(1, EntityBalancingStore.FirePointCount(pair.Key));
+                        float donorBarrels = Math.Max(1, EntityBalancingStore.FirePointCount(pair.Value));
+                        cooldownRatio = Mathf.Clamp(donorCooldown / baseCooldown, 0.2f, 10f);
+                        damageRatio = Mathf.Clamp(cooldownRatio * baseBarrels / donorBarrels, 0.1f, 12f);
+                    }
 
                     // the weapon's RANGE travels with it: a short-range gun on a long-range
                     // chassis must drive in close (and vice versa), and the delta is priced
@@ -916,6 +941,10 @@ namespace RCM_Randomizer
                 catch { continue; }
                 if (overrides.TryGetValue(pair.Value, out float extra)) costMult *= extra;
 
+                if (Mathf.Abs(cooldownRatio - 1f) > 0.02f)
+                    changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Attack1Cooldown, cooldownRatio, pair.Key));
+                if (Mathf.Abs(damageRatio - 1f) > 0.02f)
+                    changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Damage1, damageRatio, pair.Key));
                 if (Mathf.Abs(splashDelta) > 0.01f)
                     changes.Add(AddChange(EntityBalancingStore.ChangeableValue.EffectRadius1, splashDelta, pair.Key));
                 if (Mathf.Abs(rangeRatio - 1f) > 0.02f)

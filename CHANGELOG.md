@@ -4,6 +4,15 @@
 
 Playtest fixes. Every cause below was read off the game's own prefab data with the new `Diagnostics.DumpPrefabFacts` dump rather than inferred from the symptom.
 
+### Fourth playtest round
+
+- **A swapped weapon now brings its own rhythm.** It used to fire at the host's cooldown: the Multi Grenade Van's salvo (every 5 s) on a Planter Tank (1.2 s) came four times as often, T0 artillery nearly twice. The cooldown is now the donor's, and damage per shot is rescaled so the chassis keeps exactly its own damage x barrels / cooldown. Range and splash travel as before.
+- **Units that cannot take part in a swap** (RCM-UnitsMixNMatch, checked up front so they are never paired, named or priced): anything without an attack cooldown - the suicide bombs PCX Big Bomber, PCX Bomber, PCX Termite Hover, Robo Bomb, and Time Outer - and the map-range guns that fire through their skill: Ultra Turret (600), Support Artillery (500), PCX Missile Launcher (250). These were "Support Tank + PCX Big Bomber", the MachineGun Turret + PCX Missile Launcher that never fired, and the Ultra Turret whose skill spent MP on a gun that was gone. All 115 remaining donors were checked to carry a real firing action.
+- **Grenades scatter.** The Multi Grenade Van's grenades are stock guided projectiles with perfect accuracy. Its projectile (on the van and on any chassis carrying the launcher) is now lobbed at where the target was, within one cell, and no longer tracks (`Weapons.ScatterWeaponsOf`, `Weapons.ScatterRadius`). The game's other 18 guided-missile weapons are untouched.
+- **Titans come late and hit harder.** Run pacing never trims a rarity band below eight cards and the UltraRare band is small, so an unlocked Titan could be the first blueprint of a run. They now only enter the offer pools after 60 percent of a run (`Titans.EarliestRunProgress`). Units: 6x health, 4x damage (were 5x / 2.5x); turrets 5x health, 4x damage, +50 percent range; skills cost 40 percent less MP from a pool half again as large. A Titan no longer inherits its base card's "+ donor" name - it is never mixed.
+- **Engineer career:** ranks cost 24 / 72 / 192 credits (`Engineers.CareerRankCostFactor` 4), and an engineer that is killed loses rank and credits. Hacks already granted stay, and a career never grants more hacks than it has had ranks. Careers written under the old five-rank ladder are converted by the credits they actually paid.
+- **Fixed:** every generated hack threw a NullReferenceException when shown (its stub's `Awake` ran before the id was set).
+
 ### Third playtest round
 
 - **Trade-off cards had two upsides.** "Risky Refit: +13 percent Speed, but +5 percent Max HP": the payback for an ordinary stat had its sign inverted, so the drawback was a second, smaller buff. Trade-offs are now a strong buff (18-40 percent) with a real drawback of 8-30 percent; whatever a capped drawback cannot pay is charged in coins and rarity. A drawback is only ever a stat every affected card has (no "-30 percent shield" on shieldless units), and nothing about movement lands on building or turret cards.

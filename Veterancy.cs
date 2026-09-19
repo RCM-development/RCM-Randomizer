@@ -194,7 +194,7 @@ namespace RCM_Randomizer
                     Refresh(__instance);
                     if (__instance.CurrentRank == __state) return;
                     if (_grantingFromCredits && __instance.IsControlledByPlayer && !EngineerVeterancy.IsRestoring)
-                        TestMod.RCMManager.Log($"Randomizer: {__instance.entityId} reached rank {__instance.CurrentRank}/{__instance.MaxRank} ({Describe(TierOf(__instance))})");
+                        TestMod.RCMManager.Log($"Randomizer: {__instance.entityId} reached {Describe(TierOf(__instance))} ({TierOf(__instance)}/{MaxTier(__instance)})");
                     if (EngineerVeterancy.Applies(__instance)) EngineerVeterancy.OnRankReached(__instance, __state);
                 }
                 catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy display failed (" + e.Message + ")"); }
