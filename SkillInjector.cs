@@ -28,6 +28,7 @@ namespace RCM_Randomizer
             public bool HighEnd;         // only rolls on Rare/UltraRare cards
             public int MinTier;          // progression tier the run must have unlocked
             public UnitRole RequiredRole = UnitRole.None; // e.g. Harvest Surge only fits harvesters
+            public float HarvesterWeight = 1f; // pick weight on harvesters: 3 mining, 0.5 mine layers, 0 weapon-only buffs
             // The skill only sets a StatusEffect flag. Game CODE consumes exactly one status,
             // Stun; every other one (Stealth, Taunt, Marked...) gets its behaviour from prefab
             // data - handlers on units that natively use it, conditions in AI targeting. On an
@@ -72,7 +73,7 @@ namespace RCM_Randomizer
             return new SkillSpec
             {
                 Id = id, ShortName = name, Description = description,
-                ManaCost = manaCost, Power = power, MinTier = minTier,
+                ManaCost = manaCost, Power = power, MinTier = minTier, HarvesterWeight = 0.5f,
                 Target = TargetOrigin.ChosenLocation, SkillRange = 7,
                 IsAvailable = () => EntityExists(mineEntityId),
                 BuildActions = () =>
@@ -96,6 +97,22 @@ namespace RCM_Randomizer
                 }
             };
         }
+
+        static ChangeSpecificValue TimedSelf(EntityController.ChangeableValue value, float relative, float seconds, string originator) =>
+            new ChangeSpecificValue
+            {
+                operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                valueToChange = value,
+                addType = SpecificValueChange.AddType.Relative,
+                valueToAddSource = ChangeSpecificValue.ValueToAddSource.One,
+                multiplier = relative,
+                isStackable = false,
+                originatorIdOption = ChangeSpecificValue.OriginatorIdOption.GivenString,
+                originatorId = originator,
+                durationType = ChangeSpecificValue.DurationType.Seconds,
+                durationSource = EntityActionDuration.MultipleEntitySource.One,
+                durationMultiplier = seconds,
+            };
 
         static SpawnObject SpawnAtTarget(Action<SpawnObject> configure)
         {
@@ -150,7 +167,7 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "overcharge", ShortName = "Overcharge", ManaCost = 30f, Power = 0.15f,
+                Id = "overcharge", ShortName = "Overcharge", ManaCost = 30f, Power = 0.15f, HarvesterWeight = 0f,
                 Description = "Overcharge the weapon systems: +50% damage for 8 seconds.",
                 BuildActions = () => new List<IEntityAction>
                 {
@@ -214,7 +231,7 @@ namespace RCM_Randomizer
             {
                 // harvest rate IS MaxArmor on harvesters (Harvest.cs reads _self.MaxArmor per
                 // frame), so a timed relative change genuinely doubles the flow
-                Id = "harvestsurge", ShortName = "Harvest Surge", ManaCost = 25f, Power = 0.15f,
+                Id = "harvestsurge", ShortName = "Harvest Surge", ManaCost = 25f, Power = 0.15f, HarvesterWeight = 3f,
                 RequiredRole = UnitRole.Harvester,
                 Description = "Overclock the extractor: double harvest rate for 10 seconds.",
                 BuildActions = () => new List<IEntityAction>
@@ -234,6 +251,66 @@ namespace RCM_Randomizer
                         durationMultiplier = 10f,
                     },
                 }
+            },
+            // ---- mining skills: harvesters only, and weighted 3 in a harvester's pool ----------
+            new SkillSpec
+            {
+                Id = "deepdrill", ShortName = "Deep Drill", ManaCost = 30f, Power = 0.15f, HarvesterWeight = 3f,
+                RequiredRole = UnitRole.Harvester,
+                Description = "Steady overdrive: +50% harvest rate for 30 seconds.",
+                BuildActions = () => new List<IEntityAction> { TimedSelf(EntityController.ChangeableValue.MaxArmor, 0.5f, 30f, "rcmSkillDeepDrill") },
+            },
+            new SkillSpec
+            {
+                Id = "expresshaul", ShortName = "Express Haul", ManaCost = 25f, Power = 0.13f, HarvesterWeight = 3f,
+                RequiredRole = UnitRole.Harvester,
+                Description = "Rush the route: +60% movement speed and +30% harvest rate for 15 seconds.",
+                BuildActions = () => new List<IEntityAction>
+                {
+                    TimedSelf(EntityController.ChangeableValue.MoveSpeed, 0.6f, 15f, "rcmSkillExpressHaulSpeed"),
+                    TimedSelf(EntityController.ChangeableValue.MaxArmor, 0.3f, 15f, "rcmSkillExpressHaulRate"),
+                },
+            },
+            new SkillSpec
+            {
+                // the unit the game's own "Beacon Econ" hack summons: an autonomous harvester spawn
+                Id = "dronecrew", ShortName = "Drone Crew", ManaCost = 40f, Power = 0.20f, HarvesterWeight = 3f,
+                RequiredRole = UnitRole.Harvester,
+                Description = "Call in 2 harvester drones at the target location. They work for 45 seconds.",
+                Target = TargetOrigin.ChosenLocation, SkillRange = 6,
+                IsAvailable = () => EntityExists("RoboCrystalHarvesterSpawn"),
+                BuildActions = () =>
+                {
+                    var actions = new List<IEntityAction>();
+                    for (int i = 0; i < 2; i++)
+                        actions.Add(SpawnAtTarget(s =>
+                        {
+                            s.spawn = SpawnObject.Spawn.EntityId;
+                            s.entityId = "RoboCrystalHarvesterSpawn";
+                            s.initEntityController = true;
+                            s.ignoreUnitCapAlthoughNoSpawn = true;
+                            s.timeToLiveSource = EntityActionDuration.MultipleEntitySource.One;
+                            s.timeToLiveMultiplier = 45f;
+                        }));
+                    return actions;
+                }
+            },
+            new SkillSpec
+            {
+                Id = "prospect", ShortName = "Prospect", ManaCost = 30f, Power = 0.15f, HarvesterWeight = 3f,
+                RequiredRole = UnitRole.Harvester,
+                Description = "Assay the ground: gain 40 crystals at once.",
+                BuildActions = () => new List<IEntityAction>
+                {
+                    new GainCredits
+                    {
+                        operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                        creditReceiver = GainCredits.CreditReceiver.Player,
+                        creditAmount = EventPayload.CalculationParameter.One,
+                        takenFrom = EventPayload.EntityChoiceIncludingOperatingOnes.OperatingEntities,
+                        multiplier = 40f,
+                    },
+                },
             },
             new SkillSpec
             {
@@ -280,7 +357,7 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "frenzy", ShortName = "Frenzy", ManaCost = 35f, Power = 0.16f,
+                Id = "frenzy", ShortName = "Frenzy", ManaCost = 35f, Power = 0.16f, HarvesterWeight = 0f,
                 Description = "Fire frenzy: attacks come 40% faster for 8 seconds.",
                 BuildActions = () => new List<IEntityAction>
                 {
@@ -354,7 +431,7 @@ namespace RCM_Randomizer
             },
             new SkillSpec
             {
-                Id = "orbital", ShortName = "Orbital Strike", ManaCost = 60f, Power = 0.40f,
+                Id = "orbital", ShortName = "Orbital Strike", ManaCost = 60f, Power = 0.40f, HarvesterWeight = 0f,
                 Description = "Call in an artillery barrage at the target location. Powering the uplink cripples this unit's own weapons.",
                 Target = TargetOrigin.ChosenLocation, SkillRange = 6, // has to get close: that IS the drawback
                 HighEnd = true, MinTier = 3, WeaponNerf = 0.35f,
@@ -400,7 +477,7 @@ namespace RCM_Randomizer
             .Select(s => new RollEngine.SkillOption
             {
                 Id = s.Id, ShortName = s.ShortName, Power = s.Power,
-                HighEnd = s.HighEnd, WeaponNerf = s.WeaponNerf, RequiredRole = s.RequiredRole,
+                HighEnd = s.HighEnd, WeaponNerf = s.WeaponNerf, RequiredRole = s.RequiredRole, HarvesterWeight = s.HarvesterWeight,
             }).ToList();
 
         public static SkillSpec Get(string skillId) => Catalog.FirstOrDefault(s => s.Id == skillId);

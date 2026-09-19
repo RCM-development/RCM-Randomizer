@@ -66,6 +66,9 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _flagOnlySkills;
         ConfigEntry<bool> _roofTurrets;
         ConfigEntry<bool> _dumpPrefabFacts;
+        ConfigEntry<bool> _replaceSpecialistSkills;
+        ConfigEntry<bool> _engineerVeterancy;
+        ConfigEntry<float> _engineerRankCostFactor;
         ConfigEntry<bool> _shopTweaks;
         ConfigEntry<bool> _auraTweaks;
 
@@ -130,6 +133,11 @@ namespace RCM_Randomizer
                 "Write BepInEx/RandomizerProbe.txt once per session: for every rolled unit the range its selection circle draws, its target identifiers and events, plus specialist hacks and the health bar layout. Read straight off the prefabs; for bug reports and development.");
             _roofTurrets = Config.Bind("TurretShuffle", "RoofTurrets", true,
                 "Tanks and vehicles can roll a roof turret: a second weapon that aims and fires on its own, built the way the game builds its own two-gun tanks (a child turret entity). Priced into the card's cost, shown on the card model, player units only, unlocked from progression tier 1.");
+            // Off: a specialist's skill is what its card and its whole hack tree are written around
+            // (Support Tank: Robust + six "Skill targets ..." hacks). Playtest verdict: well balanced
+            // as it is, leave it. Only the economy harvesters swap their skill at run start.
+            _replaceSpecialistSkills = Config.Bind("Skills", "ReplaceSpecialistSkills", false,
+                "Specialist units (Support Tank, Mantis, Phase Walker ...) also swap their stock skill for a rolled one at run start, and their hacks are refitted to it. Off = specialists keep their own skill and hack tree; only the economy harvesters roll a new skill.");
             _flagOnlySkills = Config.Bind("Skills", "IncludeFlagOnlySkills", false,
                 "Offer Cloak, War Cry and Mark. They only set a status flag (Stealth, Taunt, Marked), and apart from Stun the game implements status effects in prefab data, not code - so on a unit that does not natively use that status the flag lands and nothing reacts. Off until each is proven to do something in play.");
             _enableHijack = Config.Bind("Skills", "EnableHijack", false,
@@ -138,6 +146,10 @@ namespace RCM_Randomizer
                 "Seeded shop variety: sales/markups, occasional rarity-upgraded slots, hides blank slots.");
             _auraTweaks = Config.Bind("Auras", "SeededTweaks", true,
                 "Support auras vary per seed: target count 2-5 and reach x0.8-1.3 for units with limited-target auras (Support Tank pattern).");
+            _engineerVeterancy = Config.Bind("Engineers", "Veterancy", true,
+                "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (ranks 1-2 Common, 3-4 Rare, 5 UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
+            _engineerRankCostFactor = Config.Bind("Engineers", "VeterancyCostFactor", 3f,
+                new ConfigDescription("How much more an engineer rank costs than a normal unit's (3 = 6, 12, 18, 24, 30 credits; a placed building is worth its cost / 100, between 0.5 and 3).", new AcceptableValueRange<float>(1f, 10f)));
             _engineerTrait = Config.Bind("Engineers", "SeededTrait", true,
                 "Each seed gives the chosen engineer one global run trait (e.g. 'turrets +7 percent damage'), attributed in stat tooltips.");
             _enemyRolls = Config.Bind("Enemies", "RollStats", true,
@@ -241,7 +253,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -291,6 +303,7 @@ namespace RCM_Randomizer
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
+                ApplyEngineerCareer();
                 if (_rollUpgrades.Value) UpgradeRolls.Apply(seed, _intensity.Value, luck);
                 if (_generatedUpgradeCount.Value > 0) GeneratedUpgrades.Apply(seed, luck, _generatedUpgradeCount.Value); // AFTER UpgradeRolls: authored numbers must not double-roll
                 if (_rollHacks.Value) RelicRolls.Apply(seed, _intensity.Value, luck);
@@ -369,8 +382,9 @@ namespace RCM_Randomizer
                 // roles, and its inspector jump goes to the entity). The entity table itself is no
                 // help here: BountyTank carries neither the isForSpecialists flag nor the
                 // Specialist role in balancing - the role badge on its card is added at runtime.
-                foreach (var id in SpecialistBalancingStore.SpecialistIds(inactive: false))
-                    set.Add(id);
+                if (_replaceSpecialistSkills.Value)
+                    foreach (var id in SpecialistBalancingStore.SpecialistIds(inactive: false))
+                        set.Add(id);
             }
             catch (Exception e) { RCMManager.Log("Randomizer: specialist starter collection failed (" + e.Message + ")"); }
             set.RemoveWhere(id =>
@@ -507,6 +521,7 @@ namespace RCM_Randomizer
             GeneratedDrops.Deactivate();
             ShopTweaks.Enabled = false;
             RoofTurrets.Enabled = false;
+            EngineerVeterancy.Enabled = false;
             AuraTweaks.Enabled = false;
             RunPacing.Enabled = false;
             if (hadChanges)
@@ -798,6 +813,35 @@ namespace RCM_Randomizer
         // A mixed unit's card pays for the weapon it received: barrel-ratio power delta priced
         // like a roll, plus configured per-donor multipliers (CF2 etc.). One synthetic change id
         // above the roll range holds all of them; the tooltip attributes them to "Weapon swap".
+        const int EngineerCareerChangeId = -49_998;
+
+        // Engineers carry maxRank 0 in the balancing table, so nothing could ever rank them. The
+        // ladder is opened through the same card-change layer as everything else.
+        void ApplyEngineerCareer()
+        {
+            EngineerVeterancy.Enabled = _engineerVeterancy.Value && _veterancyChevrons.Value;
+            EngineerVeterancy.CostFactor = _engineerRankCostFactor.Value;
+            if (!EngineerVeterancy.Enabled) return;
+
+            var changes = new List<CardChangeScriptableObject>();
+            try
+            {
+                foreach (string engineerId in EngineerBalancingStore.EngineerIds())
+                {
+                    int own = EntityBalancingStore.MaxRank(engineerId, returnOriginalValueFromBalancingFile: true);
+                    if (own < EngineerVeterancy.Ranks)
+                        changes.Add(AddChange(EntityBalancingStore.ChangeableValue.MaxRank, EngineerVeterancy.Ranks - own, engineerId));
+                }
+            }
+            catch (Exception e) { RCMManager.Log("Randomizer: engineer career not set up (" + e.Message + ")"); return; }
+            if (changes.Count == 0) return;
+
+            RegisterChangesQuietly(EngineerCareerChangeId, changes,
+                new CardId(CardId.CardType.GlobalLocaId, Veterancy.TooltipLocaKey));
+            _appliedChangeIds.Add(EngineerCareerChangeId);
+            RCMManager.Log($"Randomizer: engineer career open for {changes.Count} engineers (rank cost x{EngineerVeterancy.CostFactor:0.#}, bonus x{EngineerVeterancy.BonusFactor:0.#})");
+        }
+
         const int WeaponPricingChangeId = -49_999;
 
         void ApplyWeaponPricing()

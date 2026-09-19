@@ -48,9 +48,11 @@ namespace RCM_Randomizer
         // instance id -> credits banked toward the next rank
         static readonly Dictionary<int, float> Credits = new Dictionary<int, float>();
         static bool _grantingFromCredits;
-        static EntityModScriptableObject _bonusMod;
+        static EntityModScriptableObject _bonusMod, _engineerBonusMod;
 
-        static float CostOf(int rank) => RankCost * Math.Max(1, rank);
+        // an engineer's career is slower and worth more: see EngineerVeterancy
+        static float CostOf(EntityController entity, int rank)
+            => RankCost * Math.Max(1, rank) * (EngineerVeterancy.Applies(entity) ? EngineerVeterancy.CostFactor : 1f);
 
         public static string Describe(int rank) => rank <= 0 ? "unranked" : new[] { "bronze", "silver", "gold", "double gold", "triple gold" }[Math.Min(rank, Tiers) - 1];
 
@@ -62,7 +64,7 @@ namespace RCM_Randomizer
             return Mathf.Clamp(Mathf.CeilToInt(entity.CurrentRank * (float)Tiers / max), 1, Tiers);
         }
 
-        static void AddCredits(EntityController entity, float amount)
+        internal static void AddCredits(EntityController entity, float amount)
         {
             int max = entity.MaxRank;
             if (max <= 0 || entity.CurrentRank >= max) return;
@@ -72,16 +74,23 @@ namespace RCM_Randomizer
             credits += amount;
 
             int rank = entity.CurrentRank, granted = 0;
-            while (rank + granted < max && credits >= CostOf(rank + granted + 1))
+            while (rank + granted < max && credits >= CostOf(entity, rank + granted + 1))
             {
-                credits -= CostOf(rank + granted + 1);
+                credits -= CostOf(entity, rank + granted + 1);
                 granted++;
             }
             Credits[id] = credits;
-            if (granted <= 0) return;
+            if (EngineerVeterancy.Applies(entity)) EngineerVeterancy.OnCreditsChanged(entity, credits);
+            if (granted > 0) Grant(entity, granted);
+        }
 
+        internal static void SetCredits(EntityController entity, float credits) => Credits[entity.GetInstanceID()] = credits;
+
+        // a rank that has been paid for: passes the RankUp meter instead of being banked again
+        internal static void Grant(EntityController entity, int ranks)
+        {
             _grantingFromCredits = true;
-            try { entity.RankUp(granted); }
+            try { entity.RankUp(ranks); }
             finally { _grantingFromCredits = false; }
         }
 
@@ -95,19 +104,25 @@ namespace RCM_Randomizer
             catch { return 1f; }
         }
 
-        static EntityModScriptableObject BonusMod()
+        static EntityModScriptableObject BuildBonusMod(string name, float perRank, string originator)
         {
-            if (_bonusMod != null) return _bonusMod;
             var mod = ScriptableObject.CreateInstance<EntityModScriptableObject>();
-            mod.name = ModName;
+            mod.name = name;
             mod.entityIdentifiers = new List<EntityIdentifier>();
             mod.events = new List<EntityEvent>
             {
                 BehaviourMods.Event(EntityController.Event.OnRankChanged,
-                    BehaviourMods.RankScaled(EntityController.ChangeableValue.Damage, SpecificValueChange.AddType.Relative, BonusPerRank, "rcmVeterancyDamage"),
-                    BehaviourMods.RankScaled(EntityController.ChangeableValue.MaxHealth, SpecificValueChange.AddType.Relative, BonusPerRank, "rcmVeterancyHealth")),
+                    BehaviourMods.RankScaled(EntityController.ChangeableValue.Damage, SpecificValueChange.AddType.Relative, perRank, originator + "Damage"),
+                    BehaviourMods.RankScaled(EntityController.ChangeableValue.MaxHealth, SpecificValueChange.AddType.Relative, perRank, originator + "Health")),
             };
-            return _bonusMod = mod;
+            return mod;
+        }
+
+        static EntityModScriptableObject BonusMod(EntityController entity)
+        {
+            if (EngineerVeterancy.Applies(entity))
+                return _engineerBonusMod ?? (_engineerBonusMod = BuildBonusMod(ModName + "_engineer", BonusPerRank * EngineerVeterancy.BonusFactor, "rcmVeterancyEngineer"));
+            return _bonusMod ?? (_bonusMod = BuildBonusMod(ModName, BonusPerRank, "rcmVeterancy"));
         }
 
         // the bonus size is baked into the mod's actions, so a config change needs a new asset
@@ -115,7 +130,7 @@ namespace RCM_Randomizer
         {
             if (Math.Abs(bonusPerRank - BonusPerRank) < 0.0001f) return;
             BonusPerRank = bonusPerRank;
-            _bonusMod = null;
+            _bonusMod = _engineerBonusMod = null;
         }
 
         static void Refresh(EntityController entity)
@@ -186,20 +201,23 @@ namespace RCM_Randomizer
             // A rank handed out by a card's own RankUp action goes through the same meter as a
             // kill instead of skipping the rising price. Returning false banks it without a rank
             // change, so OnRankChanged correctly does not fire.
-            static bool Prefix(EntityController __instance, int amount)
+            static bool Prefix(EntityController __instance, int amount, out int __state)
             {
+                __state = __instance.CurrentRank;
                 if (!Enabled || !EscalatingRanks || _grantingFromCredits || amount <= 0) return true;
                 try { AddCredits(__instance, amount); return false; }
                 catch { return true; } // never swallow a rank because our accounting broke
             }
 
-            static void Postfix(EntityController __instance)
+            static void Postfix(EntityController __instance, int __state)
             {
                 try
                 {
                     Refresh(__instance);
-                    if (_grantingFromCredits && __instance.IsControlledByPlayer)
+                    if (__instance.CurrentRank == __state) return;
+                    if (_grantingFromCredits && __instance.IsControlledByPlayer && !EngineerVeterancy.IsRestoring)
                         TestMod.RCMManager.Log($"Randomizer: {__instance.entityId} reached rank {__instance.CurrentRank}/{__instance.MaxRank} ({Describe(TierOf(__instance))})");
+                    if (EngineerVeterancy.Applies(__instance)) EngineerVeterancy.OnRankReached(__instance, __state);
                 }
                 catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy display failed (" + e.Message + ")"); }
             }
@@ -216,8 +234,11 @@ namespace RCM_Randomizer
                 {
                     Credits.Remove(__instance.GetInstanceID());
                     Refresh(__instance);
-                    if (Enabled && BonusPerRank > 0f && __instance.MaxRank > 0)
-                        __instance.AddEntityMod(BonusMod(), new CardId(CardId.CardType.GlobalLocaId, LocaKey));
+                    if (!Enabled || __instance.MaxRank <= 0) return;
+                    if (BonusPerRank > 0f)
+                        __instance.AddEntityMod(BonusMod(__instance), new CardId(CardId.CardType.GlobalLocaId, LocaKey));
+                    // after the mod is on, so the restored ranks pay their bonus like earned ones
+                    if (EngineerVeterancy.Applies(__instance)) EngineerVeterancy.OnInit(__instance);
                 }
                 catch { }
             }

@@ -43,6 +43,15 @@ namespace RCM_Randomizer
 
                 sb.AppendLine();
                 try { sb.AppendLine("# globals: manaRechargePerSecond=" + F(GameBalancingStore.ManaRechargePerSecond)); } catch { }
+                try { DumpHarvesterPools(sb); } catch (Exception e) { sb.AppendLine("harvester pools FAILED " + e.Message); }
+                try
+                {
+                    sb.AppendLine("# engineers: id | maxRank table -> effective");
+                    foreach (string engineerId in EngineerBalancingStore.EngineerIds())
+                        sb.AppendLine($"    {engineerId} | {EntityBalancingStore.MaxRank(engineerId, true)} -> {EntityBalancingStore.MaxRank(engineerId)}");
+                    sb.AppendLine();
+                }
+                catch (Exception e) { sb.AppendLine("engineers FAILED " + e.Message); }
                 sb.AppendLine("# applied: specialist hacks as the player will see them");
                 foreach (string specialist in SpecialistBalancingStore.SpecialistIds(false))
                     foreach (string relicId in SpecialistBalancingStore.SpecialistParameters(specialist).associatedRelicIds ?? new List<string>())
@@ -86,6 +95,34 @@ namespace RCM_Randomizer
             string path = Path.Combine(BepInEx.Paths.BepInExRootPath, "RandomizerProbe.txt");
             File.WriteAllText(path, sb.ToString());
             TestMod.RCMManager.Log("Randomizer: prefab facts written to " + path);
+        }
+
+        // what a run-start harvester can roll right now, with the chance of each, plus what is
+        // still locked behind progression
+        static void DumpHarvesterPools(StringBuilder sb)
+        {
+            sb.AppendLine("# harvester skill pools: unit | rolled | option weight chance");
+            var harvesters = new List<string>();
+            foreach (string refineryId in EconomyBalancingStore.RefineryIds(inactive: false))
+            {
+                string product = EntityBalancingStore.ProductEntityId(refineryId);
+                if (product != null && !harvesters.Contains(product)) harvesters.Add(product);
+            }
+            foreach (string id in harvesters)
+            {
+                bool harvester = EntityBalancingStore.HasRole(id, UnitRole.Harvester);
+                var pool = RollEngine.SkillOptions
+                    .Where(o => o.RequiredRole == UnitRole.None || EntityBalancingStore.HasRole(id, o.RequiredRole))
+                    .Where(o => !harvester || o.HarvesterWeight > 0f).ToList();
+                double total = pool.Sum(o => harvester ? o.HarvesterWeight : 1.0);
+                var rolled = SkillInjector.ReplacedSkillOf(id);
+                sb.AppendLine($"{id} | harvesterRole={harvester} | rolled={(rolled != null ? rolled.ShortName : "-")} | {pool.Count} options");
+                foreach (var o in pool)
+                    sb.AppendLine($"    {o.ShortName} w={F(harvester ? o.HarvesterWeight : 1f)} {(100.0 * (harvester ? o.HarvesterWeight : 1.0) / total).ToString("0.#", CultureInfo.InvariantCulture)}%");
+            }
+            var locked = SkillInjector.Catalog.Where(s => !Progression.IsUnlocked(s.MinTier)).Select(s => s.ShortName + " (tier " + s.MinTier + ")");
+            sb.AppendLine("    locked by progression: " + string.Join(", ", locked));
+            sb.AppendLine();
         }
 
         static EntityController Load(string entityId)

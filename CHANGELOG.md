@@ -4,12 +4,18 @@
 
 Playtest fixes. Every cause below was read off the game's own prefab data with the new `Diagnostics.DumpPrefabFacts` dump rather than inferred from the symptom.
 
+### Second playtest round
+
+- **Specialists keep their own skill.** The Support Tank's Robust and its hack tree were judged well balanced as they are, so only the economy harvesters swap their skill at run start. `Skills.ReplaceSpecialistSkills` (off) brings the swap back, together with the hack refit described below.
+- **Harvester skills lean towards mining.** Four new harvester-only skills - Deep Drill (+50% harvest rate, 30 s), Express Haul (+60% speed and +30% harvest rate, 15 s), Drone Crew (2 harvester drones for 45 s) and Prospect (40 crystals at once) - join Harvest Surge. A harvester draws from 15 options by weight: the five mining skills 13% each (65% together), Guard, Field Repair, Blink, Turbo, Stasis and Deploy Turret 4.3% each, the four mine layers 2.2% each (8.7% together, was 31%). Skills that only buff a weapon are no longer offered to harvesters. Other units' rolls are unchanged.
+- **Engineer career.** Engineers have no rank ladder in the stock table (max rank 0); they now have five ranks. They earn credits from every building placed (cost / 100, between 0.5 and 3) and from kills, ranks cost three times the normal price (6, 12, 18, 24, 30), pay double the veterancy bonus (8% damage and health per rank), and every new rank grants one random hack: ranks 1-2 Common, 3-4 Rare, 5 UltraRare, seeded by the run. Rank, credits and hacks carry from battle to battle within a run (`Profiles/randomizerEngineer_<n>.txt`), so a run yields at most five career hacks. Rank and hacks are shown above the engineer while it is selected. Settings: `Engineers.Veterancy`, `Engineers.VeterancyCostFactor`.
+
 ### Fixed
 
 - **Splash and aura weapons hit across the unit's whole weapon range** (Planter Tank + T0 Artillery out-damaging direct fire; also Smart Grenade, Commando shot, heal auras). The mixer's fallback for a lost overlap box fired for every target identifier that never had a box, replacing e.g. the grenade's `SelfEffectRadius1` (0.9 cells) with `SelfWeaponRange` (9 cells). Fixed in RCM-UnitsMixNMatch. The donor weapon's splash radius now travels with the gun, as its range already did, and is priced.
 - **Beam weapons reached less far than the unit engaged from** (Support Tank + PCX Eradicator). Such guns damage whatever is inside a box sized `weapon range x local scale`; shrinking the turret to fit a smaller chassis shrank the box with it. The mixer now compensates the box for the turret's scale change.
 - **Veterancy marks appeared at both ends of the health bar.** The game's veteran icon is a slot inside a horizontal layout group; cloning the slot appended the copy after the armor badge. Ranks are now drawn inside the slot.
-- **Specialist hacks that no longer did anything.** A specialist's hacks act on the targets of its stock skill. For specialists whose skill is swapped at run start (Support Tank, Mantis, Phase Walker, Vampire Walker) the six hacks are refitted to the rolled skill: cheaper casts, a bigger MP pool, faster recharge, reach, toughness. Trees that do not depend on the skill (Incinerator's Burning hacks, Castle, Commando Tank) are left as they are.
+- **Specialist hacks that no longer did anything.** A specialist's hacks act on the targets of its stock skill. With `Skills.ReplaceSpecialistSkills` on, for specialists whose skill is swapped at run start (Support Tank, Mantis, Phase Walker, Vampire Walker) the six hacks are refitted to the rolled skill: cheaper casts, a bigger MP pool, faster recharge, reach, toughness. Trees that do not depend on the skill (Incinerator's Burning hacks, Castle, Commando Tank) are left as they are.
 
 ### Veterancy
 

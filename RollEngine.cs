@@ -54,6 +54,10 @@ namespace RCM_Randomizer
             public bool HighEnd;      // only offered on Rare/UltraRare cards
             public float WeaponNerf;  // caster archetype: own-weapon damage multiplier, credited to the budget
             public UnitRole RequiredRole; // None = any unit; e.g. Harvest Surge only fits harvesters
+            // Pick weight when the roller is a harvester (null/unset = 1). A harvester's card is an
+            // economy card, so mining skills weigh 3, the four mine layers half each, and skills that
+            // only buff a weapon are out. 0.9.1 drew uniformly and 4 of 13 options were mines.
+            public float HarvesterWeight;
         }
 
         // Custom skills available as rare rolls; the plugin fills this from SkillInjector.Catalog.
@@ -349,10 +353,11 @@ namespace RCM_Randomizer
                     // draw from the full pool - the price is charged to their budget either way
                     var rarity = EntityBalancingStore.Rarity(EntityBalancingStore.FactoryEntityId(entityId) ?? entityId);
                     var pool = SkillOptions.Where(o => (starter || !o.HighEnd || rarity != Rarity.Common)
-                        && (o.RequiredRole == UnitRole.None || SafeHasRole(entityId, o.RequiredRole))).ToList();
+                        && (o.RequiredRole == UnitRole.None || SafeHasRole(entityId, o.RequiredRole))
+                        && (o.HarvesterWeight > 0f || !SafeHasRole(entityId, UnitRole.Harvester))).ToList();
                     if (pool.Count > 0)
                     {
-                        var option = pool[rand.Next(pool.Count)];
+                        var option = WeightedPick(pool, rand.NextDouble(), SafeHasRole(entityId, UnitRole.Harvester));
                         roll.SkillId = option.Id;
                         roll.SkillName = option.ShortName;
                         roll.ForceReplaceSkill = starter;
@@ -472,6 +477,20 @@ namespace RCM_Randomizer
                 return EntityBalancingStore.ProductEntityId(entityId) == null;
             }
             catch { return false; }
+        }
+
+        // One uniform sample either way, and with equal weights it lands on the same index the old
+        // rand.Next(count) did - so non-harvester cards keep the skills their seeds already had.
+        static SkillOption WeightedPick(List<SkillOption> pool, double sample, bool harvester)
+        {
+            if (!harvester) return pool[Math.Min(pool.Count - 1, (int)(sample * pool.Count))];
+            double total = pool.Sum(o => (double)o.HarvesterWeight), cursor = sample * total;
+            foreach (var option in pool)
+            {
+                cursor -= option.HarvesterWeight;
+                if (cursor < 0) return option;
+            }
+            return pool[pool.Count - 1];
         }
 
         static bool SafeHasRole(string entityId, UnitRole role)
@@ -649,7 +668,7 @@ namespace RCM_Randomizer
         static float Clamp(float v, float min, float max) => v < min ? min : (v > max ? max : v);
 
         // Stable string hash (string.GetHashCode is not guaranteed stable across runtimes).
-        static int Fnv1a(string s)
+        public static int Fnv1a(string s)
         {
             unchecked
             {
