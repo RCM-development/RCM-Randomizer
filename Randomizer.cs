@@ -67,6 +67,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _flagOnlySkills;
         ConfigEntry<bool> _roofTurrets;
         ConfigEntry<bool> _dumpPrefabFacts;
+        ConfigEntry<bool> _watchWeapons;
         ConfigEntry<bool> _replaceSpecialistSkills;
         ConfigEntry<bool> _engineerVeterancy;
         ConfigEntry<float> _engineerRankCostFactor;
@@ -141,6 +142,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Seed-generated hacks (relics) added to the pools.", new AcceptableValueRange<int>(0, 10)));
             _generatedDropCount = Config.Bind("Drops", "GeneratedCount", 3,
                 new ConfigDescription("Seed-generated drops (existing drop behaviours with their own rolled numbers, filling the Rare shop slots).", new AcceptableValueRange<int>(0, 3)));
+            _watchWeapons = Config.Bind("Diagnostics", "WatchWeapons", true,
+                "Log one line per unit type that holds a target in range without firing, naming which step of the shot chain stopped: aiming, the shot itself, or the hit. For chasing down units that idle in battle.");
             _dumpPrefabFacts = Config.Bind("Diagnostics", "DumpPrefabFacts", false,
                 "Write BepInEx/RandomizerProbe.txt once per session: for every rolled unit the range its selection circle draws, its target identifiers and events, plus specialist hacks and the health bar layout. Read straight off the prefabs; for bug reports and development.");
             _roofTurrets = Config.Bind("TurretShuffle", "RoofTurrets", true,
@@ -216,7 +219,7 @@ namespace RCM_Randomizer
 
             // The game wipes all in-game card changes on win/lose/quit-to-menu and scene switches,
             // then re-registers its own via ManageStartCardChanges.Awake. Re-apply ours each load.
-            SceneManager.sceneLoaded += (scene, loadMode) => EnsureRollsCurrent();
+            SceneManager.sceneLoaded += (scene, loadMode) => { WeaponWatchdog.Reset(); EnsureRollsCurrent(); };
         }
 
         // ---- Lifecycle -----------------------------------------------------------------------
@@ -281,7 +284,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -328,6 +331,8 @@ namespace RCM_Randomizer
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
                 if (_generatedDropCount.Value > 0) GeneratedDrops.Apply(seed, luck, _generatedDropCount.Value); // before ApplyRolls so they join the roll universe
+                WeaponWatchdog.Enabled = _watchWeapons.Value;
+                WeaponWatchdog.DonorOf = id => _donorMap != null && _donorMap.TryGetValue(id, out string d) ? d : null;
                 GrenadeScatter.Configure(_scatterWeapons.Value, _scatterRadius.Value);
                 Titans.Enabled = _titans.Value; Titans.UnlockTier = _titanUnlockTier.Value; Titans.EnemyTitans = _enemyTitans.Value; Titans.EarliestRunProgress = _titanEarliest.Value;
                 Titans.Apply(seed, _titanUnitCount.Value, _titanTurretCount.Value);
