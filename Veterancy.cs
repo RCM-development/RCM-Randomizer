@@ -51,6 +51,10 @@ namespace RCM_Randomizer
         static EntityModScriptableObject _bonusMod, _engineerBonusMod;
 
         // an engineer's career is slower and worth more: see EngineerVeterancy
+        // an engineer rank's price, without needing a live engineer (career files are converted at load)
+        internal static float EngineerRankCost(int rank)
+            => RankCost * TierCostFactor[Mathf.Clamp(rank, 1, Tiers) - 1] * EngineerVeterancy.CostFactor;
+
         static float CostOf(EntityController entity, int rank)
             => RankCost * TierCostFactor[Mathf.Clamp(rank, 1, Tiers) - 1] * (EngineerVeterancy.Applies(entity) ? EngineerVeterancy.CostFactor : 1f);
 

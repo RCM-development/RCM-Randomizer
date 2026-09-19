@@ -62,12 +62,39 @@ namespace RCM_Randomizer
                         int.TryParse(parts[1], out career.Rank);
                         float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out career.Credits);
                         if (parts.Length >= 4 && parts[3].Length > 0) career.Hacks = parts[3].Split(',').ToList();
+                        if (parts.Length < 5) ConvertLegacyLadder(career);
                     }
                 }
             }
             catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer career not readable (" + e.Message + ")"); }
-            return _career = career;
+            _career = career;
+            if (_convertedPendingSave) { _convertedPendingSave = false; Save(); }
+            return career;
         }
+
+        const string LadderVersion = "3";
+
+        // Careers written before the three-tier ladder (no 5th field) counted five cheap ranks: rank N
+        // cost 6 x N credits. Re-buy the new ladder with what that career actually paid, so an old
+        // "rank 3" (36 credits) arrives as bronze with credits banked, not as gold. Hacks already
+        // handed out stay - they are in the run's deck - and count against future ranks.
+        static void ConvertLegacyLadder(Career career)
+        {
+            float paid = career.Credits;
+            for (int rank = 1; rank <= career.Rank; rank++) paid += 6f * rank;
+            int newRank = 0;
+            while (newRank < Ranks && paid >= Veterancy.EngineerRankCost(newRank + 1))
+            {
+                paid -= Veterancy.EngineerRankCost(newRank + 1);
+                newRank++;
+            }
+            TestMod.RCMManager.Log($"Randomizer: engineer career from the old 5-rank ladder converted: rank {career.Rank} -> {Veterancy.Describe(newRank)}, {paid:0.#} credits banked, {career.Hacks.Count} hacks kept");
+            career.Rank = newRank;
+            career.Credits = paid;
+            _convertedPendingSave = true;
+        }
+
+        static bool _convertedPendingSave;
 
         static void Save()
         {
@@ -75,7 +102,7 @@ namespace RCM_Randomizer
             {
                 var c = Current();
                 File.WriteAllText(FilePath(), string.Join(";", c.RunSeed.ToString(), c.Rank.ToString(),
-                    c.Credits.ToString("0.###", CultureInfo.InvariantCulture), string.Join(",", c.Hacks)));
+                    c.Credits.ToString("0.###", CultureInfo.InvariantCulture), string.Join(",", c.Hacks), LadderVersion));
             }
             catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer career not saved (" + e.Message + ")"); }
         }
@@ -111,6 +138,8 @@ namespace RCM_Randomizer
             if (_restoring || engineer.CurrentRank <= career.Rank) return;
             for (int rank = Math.Max(previousRank, career.Rank) + 1; rank <= engineer.CurrentRank; rank++)
             {
+                // one hack per rank, ever: a converted career can hold more hacks than its rank
+                if (career.Hacks.Count >= rank) continue;
                 string hack = PickHack(career.RunSeed, rank);
                 if (hack == null)
                 {
