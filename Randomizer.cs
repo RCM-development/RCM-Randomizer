@@ -71,6 +71,11 @@ namespace RCM_Randomizer
         ConfigEntry<float> _engineerRankCostFactor;
         ConfigEntry<bool> _shopTweaks;
         ConfigEntry<bool> _shopRarityBumps;
+        ConfigEntry<bool> _titans;
+        ConfigEntry<int> _titanUnitCount;
+        ConfigEntry<int> _titanTurretCount;
+        ConfigEntry<int> _titanUnlockTier;
+        ConfigEntry<bool> _enemyTitans;
         ConfigEntry<bool> _auraTweaks;
 
         readonly Dictionary<string, float> _sizeCache = new Dictionary<string, float>();
@@ -149,6 +154,14 @@ namespace RCM_Randomizer
                 "Occasionally raise a shop slot's rarity before it draws. Off by default: a bumped slot draws from the Rare/UltraRare pool, which is small or empty until late progression, and an empty slot is hidden - playtests read it as the shop losing its options.");
             _auraTweaks = Config.Bind("Auras", "SeededTweaks", true,
                 "Support auras vary per seed: target count 2-5 and reach x0.8-1.3 for units with limited-target auras (Support Tank pattern).");
+            _titans = Config.Bind("Titans", "Enabled", true,
+                "Super units: a seeded few of the heaviest mechs, tanks and turrets return as Titans - 1.6x the size, 5x the health, 2.5x the damage, slower, one on the field at a time, five times the price and built in their own UltraRare Titan Foundry. Removing the mod breaks a save that owns one, like any generated card.");
+            _titanUnitCount = Config.Bind("Titans", "UnitCount", 3, new ConfigDescription("Titan mechs/tanks per seed.", new AcceptableValueRange<int>(0, 6)));
+            _titanTurretCount = Config.Bind("Titans", "TurretCount", 2, new ConfigDescription("Titan turrets per seed.", new AcceptableValueRange<int>(0, 4)));
+            _titanUnlockTier = Config.Bind("Titans", "UnlockTier", 4,
+                new ConfigDescription("Progression tier (0-4) that opens Titans. 4 is the top of the ladder and needs ascension, heat or the hardest difficulty on top of experience. Lower it to try them out.", new AcceptableValueRange<int>(0, 4)));
+            _enemyTitans = Config.Bind("Titans", "EnemyTitans", true,
+                "In the last third of a run, about 4 percent of the enemy's heavier units (cost 200+) spawn as Titans: 1.5x the size, 4x the health, double damage. Seeded by the run.");
             _engineerVeterancy = Config.Bind("Engineers", "Veterancy", true,
                 "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (bronze Common, silver Rare, gold UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
             _engineerRankCostFactor = Config.Bind("Engineers", "CareerCostFactor", 2f,
@@ -256,7 +269,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -271,6 +284,7 @@ namespace RCM_Randomizer
                     GeneratedHacks.ReapplyLoca();
                     SpecialistHacks.ReapplyLoca(); // after RelicRolls.ReapplyDescriptions, which would restore the stock wording
                     GeneratedDrops.ReapplyLoca();
+                    Titans.ReapplyLoca();
                     ApplyDropDescSuffixes();
                     if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
                     return;
@@ -302,6 +316,8 @@ namespace RCM_Randomizer
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
                 if (_generatedDropCount.Value > 0) GeneratedDrops.Apply(seed, luck, _generatedDropCount.Value); // before ApplyRolls so they join the roll universe
+                Titans.Enabled = _titans.Value; Titans.UnlockTier = _titanUnlockTier.Value; Titans.EnemyTitans = _enemyTitans.Value;
+                Titans.Apply(seed, _titanUnitCount.Value, _titanTurretCount.Value);
                 if (_capturedTechCount.Value > 0) ApplyCapturedTech(seed);
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
                 ApplyRolls(seed, luck);
@@ -522,6 +538,8 @@ namespace RCM_Randomizer
             GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
             GeneratedHacks.Deactivate();
             GeneratedDrops.Deactivate();
+            Titans.Deactivate();
+            Titans.Enabled = false;
             ShopTweaks.Enabled = false;
             RoofTurrets.Enabled = false;
             EngineerVeterancy.Enabled = false;

@@ -4,6 +4,23 @@
 
 Playtest fixes. Every cause below was read off the game's own prefab data with the new `Diagnostics.DumpPrefabFacts` dump rather than inferred from the symptom.
 
+### Third playtest round
+
+- **Trade-off cards had two upsides.** "Risky Refit: +13 percent Speed, but +5 percent Max HP": the payback for an ordinary stat had its sign inverted, so the drawback was a second, smaller buff. Trade-offs are now a strong buff (18-40 percent) with a real drawback of 8-30 percent; whatever a capped drawback cannot pay is charged in coins and rarity. A drawback is only ever a stat every affected card has (no "-30 percent shield" on shieldless units), and nothing about movement lands on building or turret cards.
+- **More generated cards.** Upgrades gain a double-edged shape (two buffs, one heavy drawback) and a role-only trade-off, and four more stats (build time, splash radius, max MP, skill cost). Hacks gain a trade-off shape and a two-stat shape, plus range, attack cooldown and sight. Generated cards change for existing seeds.
+- **Generated content above tier 0 was never offered.** Tiers were mapped onto `GameBalancingStore.MaxExperienceLevel`, which is 500000 in this game ("no cap"); tier 1 demanded level 125000 and the reward pools filter on the player's real level. The top of the track is now read off the stock cards themselves (level 48; 999/1000 are "never" sentinels). The ready line in the log shows `level n of 48`.
+- **Veterancy is three tiers: bronze, silver, gold.** 6 / 18 / 48 kill credits (72 in total, was 30 for five ranks) and 15 / 30 / 45 percent damage and health. One icon, tinted - the game's sprite is already a stack of chevrons, so stacking more on top made a tall yellow ladder. New settings `VeterancyBronzeCost`, `VeterancyBonusPerTier`. The Veteran upgrade card shared a value-change id with the base bonus and replaced it instead of adding to it; fixed, now +10 percent damage and 1 armor per tier.
+- **Engineer:** three ranks (Common, Rare, UltraRare hack; 12 / 36 / 96 credits, `Engineers.CareerCostFactor`). The engineer's own badge hangs exactly where the rank icon is laid out, so the two overlapped; the badge now moves one slot left while a rank shows. The rank/hack label had a zero-size rect and never rendered; fixed. A rank showing at the start of a battle is the career carried over from the previous one.
+- **Shop:** rarity-bumped slots and drop promotion are off by default (`Shop.RarityBumps`, `Drops.PromoteStrongDrops`). A bumped slot drew from the mostly empty Rare/UltraRare pool and was then hidden as blank, and promoted drops could only ever appear in such a slot - together they removed options. Generated drops are Common again. Sales and markups stay.
+- **Mixer (RCM-UnitsMixNMatch):** stripping a host's turret parts out of an animation did not shift the indices of the parts behind them, so `Animate` indexed past the end of its list on every play (walkers; reported for Swarm Walker + PCX Bomber). Hosts whose pivot is their body keep all their animations, and a donor animation with a single part is no longer dropped.
+
+### Titans (new)
+
+- A seeded few of the heaviest mechs and tanks (3) and turrets (2) return as **Titans**: 1.6x the size, 5x health, 2.5x damage, more range, slower, one on the field at a time, 5x the price, built in their own UltraRare Titan Foundry (2.5x the foundry price). Titan turrets: 4x health, 2.5x damage, +35 percent range, 5x the price, two at most.
+- They sit at the top of the ladder (`Titans.UnlockTier` 4: experience plus ascension, heat or the hardest difficulty) and are the most expensive cards of their band, so run pacing deals them last. Lower `UnlockTier` to try them.
+- **Enemy Titans:** in the last third of a run about 4 percent of the enemy's heavier units (cost 200+) spawn 1.5x the size with 4x health and double damage, seeded by the run (`Titans.EnemyTitans`).
+- Like every generated card, a save that owns a Titan foundry needs the mod to stay installed.
+
 ### Second playtest round
 
 - **Specialists keep their own skill.** The Support Tank's Robust and its hack tree were judged well balanced as they are, so only the economy harvesters swap their skill at run start. `Skills.ReplaceSpecialistSkills` (off) brings the swap back, together with the hack refit described below.

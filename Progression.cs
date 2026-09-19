@@ -91,12 +91,31 @@ namespace RCM_Randomizer
         }
 
         public static string Describe() =>
-            Enabled ? $"tier {UnlockedTier()}/{MaxTier} unlocked" : "progression gating off";
+            Enabled ? $"tier {UnlockedTier()}/{MaxTier} unlocked (level {(MetaGame.Instance != null ? MetaGame.Instance.CurrentExperienceLevel : 0)} of {MaxExperienceLevel()})" : "progression gating off";
 
+        // The top of the vanilla unlock track is the highest level any STOCK card asks for (50), not
+        // GameBalancingStore.MaxExperienceLevel: that is 500000 here, a "no cap" value. Using it made
+        // tier 1 content demand level 125000, so the reward pools - which filter on the player's
+        // real level - never offered a single generated card above tier 0.
+        static int _trackTop;
         static int MaxExperienceLevel()
         {
-            try { int max = GameBalancingStore.MaxExperienceLevel; return max > 0 ? max : 20; }
-            catch { return 20; }
+            if (_trackTop > 0) return _trackTop;
+            // 95th percentile of the real levels stock cards ask for, not the maximum: many rows carry
+            // sentinels (999 and 1000 = "never", a stray 100) far above the real track, which ends near 50
+            int top = 0;
+            try
+            {
+                var levels = new System.Collections.Generic.List<int>();
+                foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+                    if (row.entityId != null && !row.entityId.StartsWith("rcmgen_", StringComparison.Ordinal) && row.neededExperienceLevel > 0 && row.neededExperienceLevel < 200)
+                        levels.Add(row.neededExperienceLevel);
+                levels.Sort();
+                if (levels.Count > 0) top = levels[(int)(0.95 * (levels.Count - 1))];
+            }
+            catch { }
+            if (top <= 0) return 50; // table not loaded yet: do not cache a guess
+            return _trackTop = top;
         }
 
         static int MaxAscensionLevel()

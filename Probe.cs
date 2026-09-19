@@ -64,6 +64,23 @@ namespace RCM_Randomizer
                         sb.AppendLine($"    {row.relicId} | {row.rarity} {row.coinsAmount} inactive={row.inactive} | \"{Loca.RelicName(row.relicId)}\": {Loca.RelicDescription(row.relicId)} | [{Changes(row.scriptableObject != null ? row.scriptableObject.cardChanges : null)}]");
                 }
                 catch (Exception e) { sb.AppendLine("generated cards FAILED " + e.Message); }
+                sb.AppendLine("# titans: id | name | cost cap hp dmg range speed | product/foundry | blueprint inactive xp | prefab loads");
+                foreach (var row in EntityBalancingStore.EntityBalancingParametersList.Where(r => Titans.IsGenerated(r.entityId)))
+                {
+                    try
+                    {
+                        sb.AppendLine($"    {row.entityId} | \"{Loca.BlueprintName(row.entityId)}\" | cost={row.cost} cap={row.maxCapacity} hp={row.maxHealth} dmg={F(row.damage1)} range={F(row.weaponRange)} speed={F(row.moveSpeed)}"
+                            + $" | product={EntityBalancingStore.ProductEntityId(row.entityId) ?? "-"} foundry={EntityBalancingStore.FactoryEntityId(row.entityId) ?? "-"}"
+                            + $" | bp={row.isAllowedAsBlueprint} inactive={row.inactive} xp={row.neededExperienceLevel} rarity={row.rarity} | prefab={(Resources.Load(EntityBalancingStore.PrefabLocation(row.entityId)) != null)}");
+                    }
+                    catch (Exception e) { sb.AppendLine("    " + row.entityId + " FAILED " + e.Message); }
+                }
+                try
+                {
+                    var ultra = EntityBalancingStore.AllEntityIdsAllowedAsBlueprints(Rarity.UltraRare);
+                    sb.AppendLine("    in the UltraRare blueprint pool right now: " + string.Join(", ", ultra.Where(Titans.IsGenerated)));
+                }
+                catch (Exception e) { sb.AppendLine("    pool query FAILED " + e.Message); }
                 sb.AppendLine();
                 sb.AppendLine("# applied: specialist hacks as the player will see them");
                 foreach (string specialist in SpecialistBalancingStore.SpecialistIds(false))

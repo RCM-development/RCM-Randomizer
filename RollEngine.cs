@@ -290,6 +290,8 @@ namespace RCM_Randomizer
             // Support Tank got no stat roll and no skill roll at all - being listed as a starter
             // changed nothing, because starters are only consulted for entities that roll.
             try { foreach (var id in SpecialistBalancingStore.SpecialistIds(inactive: false)) set.Add(id); } catch { }
+            // Titans carry authored numbers on their own rows: no stat roll, no skill, no roof gun on top
+            set.RemoveWhere(Titans.IsGenerated);
             if (includeDrops)
             {
                 try
