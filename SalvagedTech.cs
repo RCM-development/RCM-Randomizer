@@ -5,7 +5,7 @@ using System.Linq;
 namespace RCM_Randomizer
 {
     // The game's unlock track ends at level 48: after that, levelling up gives nothing new. But the
-    // data holds far more than the player ever builds - 65 armed, costed units belong to the enemy
+    // data holds far more than the player ever builds - 43 armed units worth a card belong to the enemy
     // factions (the PCX and CF rosters, the AI-only variants) and have no card at all.
     //
     // Salvage turns those into the reward for playing past the end of the track. Each one gets an
@@ -69,6 +69,7 @@ namespace RCM_Randomizer
             if (pool.Count == 0) TestMod.RCMManager.Log("Randomizer: salvage found no enemy unit to offer");
             if (pool.Count == 0) return;
 
+            int poolSize = pool.Count;
             var rand = new Random(seed ^ RollEngine.Fnv1a("salvage"));
             var names = new List<string>();
             for (int n = 0; n < Count && pool.Count > 0; n++)
@@ -103,7 +104,7 @@ namespace RCM_Randomizer
                 names.Add(unitName + " (L" + card.neededExperienceLevel + ")");
             }
             if (names.Count > 0)
-                TestMod.RCMManager.Log("Randomizer: salvage cards -> " + string.Join(", ", names));
+                TestMod.RCMManager.Log("Randomizer: salvage cards (" + names.Count + " of " + poolSize + " enemy units that qualify) -> " + string.Join(", ", names));
         }
 
         // Enemy units carry no price of their own (the AI spawns them), so what a card for one is

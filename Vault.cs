@@ -44,13 +44,16 @@ namespace RCM_Randomizer
             var items = new List<(string kind, string id, int index, string name)>();
             var specialists = new HashSet<string>();
             try { foreach (var s in SpecialistBalancingStore._specialistBalancingScriptableObject.parameters) specialists.Add(s.specialistId); } catch { }
+            // an economy is picked at run setup and comes with its own hack; its refinery as a loose card is half of it
+            var economies = new HashSet<string>();
+            try { foreach (var e in EconomyBalancingStore._economyBalancingScriptableObject.parameters) economies.Add(e.refineryId); } catch { }
             try
             {
                 var entities = EntityBalancingStore.EntityBalancingParametersList;
                 for (int i = 0; i < entities.Count; i++)
                 {
                     var row = entities[i];
-                    if (!row.inactive || row.neededExperienceLevel >= 999 || Skip(row.entityId)) continue;
+                    if (!row.inactive || row.neededExperienceLevel >= 999 || Skip(row.entityId) || economies.Contains(row.entityId)) continue;
                     bool drop = (row.roles & UnitRole.Drop) != 0;
                     if (!drop && !row.isAllowedAsBlueprint) continue;
                     if (string.IsNullOrEmpty(row.prefabLocation) || Resources.Load(row.prefabLocation) == null) continue;
