@@ -38,7 +38,7 @@ namespace RCM_Randomizer
             for (int i = 0; i < list.Count; i++)
             {
                 var row = list[i];
-                if (!row.isAllowedAsBlueprint || row.inactive || Titans.IsGenerated(row.entityId)) continue;
+                if (!row.isAllowedAsBlueprint || row.inactive || Titans.IsGenerated(row.entityId) || SalvagedTech.IsGenerated(row.entityId)) continue;
                 // The cards a run can START with are the opening deck: gating those behind experience
                 // would leave a fresh profile with nothing to begin from. They keep the level the game
                 // gave them, whatever they do.

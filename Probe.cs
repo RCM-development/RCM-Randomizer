@@ -41,17 +41,30 @@ namespace RCM_Randomizer
                 try
                 {
                     var rows = EntityBalancingStore.EntityBalancingParametersList
-                        .Where(r => r.isAllowedAsBlueprint && !r.inactive && !Titans.IsGenerated(r.entityId))
+                        .Where(r => r.isAllowedAsBlueprint && !r.inactive && !Titans.IsGenerated(r.entityId) && !SalvagedTech.IsGenerated(r.entityId))
                         .OrderBy(r => r.neededExperienceLevel).ThenBy(r => r.entityId, StringComparer.Ordinal);
                     foreach (var row in rows)
                     {
                         string product = row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : row.entityId;
                         var p = EntityBalancingStore.EntityBalancingParametersList.FirstOrDefault(x => x.entityId == product);
                         float dps = p.attackCooldown > 0.01f ? p.damage1 * Math.Max(1, p.firePointCount) / p.attackCooldown : 0f;
-                        sb.AppendLine($"    {row.entityId} | L{row.neededExperienceLevel} | c={row.cost} | dps={F(dps)} | r={F(p.weaponRange)} | {product} | {p.roles}");
+                        string shown; try { shown = Loca.BlueprintName(row.entityId); } catch { shown = row.entityId; }
+                        sb.AppendLine($"    {row.entityId} | L{row.neededExperienceLevel} | c={row.cost} | dps={F(dps)} | r={F(p.weaponRange)} | {p.roles} | {shown}");
                     }
                 }
                 catch (Exception e) { sb.AppendLine("blueprints FAILED " + e.Message); }
+                sb.AppendLine();
+                sb.AppendLine("# salvage cards: enemy units unlocked above the vanilla track");
+                try
+                {
+                    foreach (var row in EntityBalancingStore.EntityBalancingParametersList.Where(r => SalvagedTech.IsGenerated(r.entityId)))
+                    {
+                        string product = row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : "-";
+                        sb.AppendLine($"    {row.entityId} | L{row.neededExperienceLevel} | c={row.cost} | inactive={row.inactive} | builds {product}"
+                            + $" | \"{Loca.BlueprintName(row.entityId)}\" | prefab={(UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(product)) != null)}");
+                    }
+                }
+                catch (Exception e) { sb.AppendLine("salvage FAILED " + e.Message); }
                 sb.AppendLine();
                 sb.AppendLine("# weapon audit: does each weapon survive a transplant? (copied events only)");
                 try
