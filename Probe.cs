@@ -34,6 +34,34 @@ namespace RCM_Randomizer
                 }
 
                 sb.AppendLine();
+                sb.AppendLine("# weapon audit: does each weapon survive a transplant? (copied events only)");
+                try
+                {
+                    var byVerdict = new Dictionary<string, List<string>>();
+                    foreach (string id in entityIds.OrderBy(s => s, StringComparer.Ordinal))
+                    {
+                        var result = WeaponAudit.Of(id);
+                        string key = result.Verdict + (result.Detail.Length > 0 && result.Verdict != WeaponAudit.Verdict.Ok ? " " + result.Detail : "");
+                        if (!byVerdict.TryGetValue(key, out var list)) byVerdict[key] = list = new List<string>();
+                        list.Add(id);
+                    }
+                    foreach (var entry in byVerdict.OrderBy(e => e.Key, StringComparer.Ordinal))
+                        sb.AppendLine($"    {entry.Key}: {entry.Value.Count} -> {string.Join(", ", entry.Value)}");
+
+                    sb.AppendLine("    per pair (base <- donor | donor's weapon):");
+                    int bad = 0;
+                    foreach (string id in entityIds.OrderBy(s => s, StringComparer.Ordinal))
+                    {
+                        string donor = donorOf != null ? donorOf(id) : null;
+                        if (string.IsNullOrEmpty(donor)) continue;
+                        var result = WeaponAudit.Of(donor);
+                        if (!result.Travels) bad++;
+                        sb.AppendLine($"      {(result.Travels ? "ok  " : "BAD ")} {id} <- {donor} | {result.Verdict} {result.Detail}");
+                    }
+                    sb.AppendLine($"    pairs whose donor weapon would not travel: {bad}");
+                }
+                catch (Exception e) { sb.AppendLine("weapon audit FAILED " + e.Message); }
+                sb.AppendLine();
                 sb.AppendLine("# pairs: base range/level/cost <- donor range/level/cost | cooldown x, damage x");
                 try
                 {
@@ -223,6 +251,12 @@ namespace RCM_Randomizer
         static string DescribeAction(IEntityAction action)
         {
             if (action is RankUp rankUp) return "RankUp(" + rankUp.amount + ")";
+            if (action is RunActionsOfEvent jump) return "RunActionsOfEvent(" + jump.@event + ")";
+            if (action is DealDamage deal) return "DealDamage(" + deal.damageChoice + " via " + deal.operatingEntities + (string.IsNullOrEmpty(deal.entityIdentifierWithTargetAsOrigin) ? "" : ":" + deal.entityIdentifierWithTargetAsOrigin) + ")";
+            if (action is DealDamageAdvanced advanced) return "DealDamageAdvanced(" + advanced.damageAmount + ")";
+            if (action is SpawnObject spawn)
+                return "SpawnObject(" + spawn.spawn + ":" + (spawn.spawn == SpawnObject.Spawn.EntityId ? spawn.entityId : (spawn.prefab != null ? spawn.prefab.name : "-")) + ")";
+            if (action is RunSerial serial) return "RunSerial[" + string.Join(",", serial.actions.Where(a => a != null).Select(DescribeAction)) + "]";
             if (action is ShootProjectile shot)
             {
                 string mover = "none", imprecision = "";

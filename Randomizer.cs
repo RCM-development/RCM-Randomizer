@@ -809,6 +809,10 @@ namespace RCM_Randomizer
         {
             try
             {
+                // the weapon has to survive the transplant at all: a donor whose damage hangs off an event
+                // the swap does not copy arrives as an animation with no bite (Claw Bot + Robo Poker)
+                if (!WeaponAudit.DonorKeepsItsBite(donorId)) return false;
+
                 const UnitRole nonCombat = UnitRole.Spawner | UnitRole.Refinery | UnitRole.Harvester | UnitRole.Engineer | UnitRole.Builder | UnitRole.Factory;
                 if (EntityBalancingStore.HasRole(donorId, nonCombat)) return false;
 
