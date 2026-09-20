@@ -434,6 +434,11 @@ namespace RCM_Randomizer
                 }
                 catch { return true; }
             });
+            // a skill that IS the unit is never rolled over, however much the run start wants variety
+            var protectedSkills = set.Where(PrefabSkillChangesMode).ToList();
+            foreach (var id in protectedSkills) set.Remove(id);
+            if (protectedSkills.Count > 0)
+                RCMManager.Log("Randomizer: keeping the stock skill of " + string.Join(", ", protectedSkills) + " (their skill switches the unit's mode, e.g. deploying)");
             return set;
         }
 
@@ -1130,6 +1135,48 @@ namespace RCM_Randomizer
             }
             _hasSkillCache[entityId] = hasSkill;
             return hasSkill;
+        }
+
+        readonly Dictionary<string, bool> _skillModeCache = new Dictionary<string, bool>();
+
+        // Is the unit's stock skill the unit itself? The Core Harvester's skill is its DEPLOY: it
+        // teleports onto a crystal and switches the unit into harvesting mode, and the card even says
+        // "needs to be deployed on a free crystal". Rolling a new skill over that left a harvester
+        // that can never harvest. The fingerprint is the mode switch - ChangeEntityParameter or
+        // CancelEntityParameterChange in the skill - which the other harvesters' skills do not have
+        // (they spawn a helper, or boost speed and harvest rate for a few seconds).
+        bool PrefabSkillChangesMode(string entityId)
+        {
+            if (_skillModeCache.TryGetValue(entityId, out bool cached)) return cached;
+            bool changesMode = false;
+            try
+            {
+                var prefab = Resources.Load<GameObject>(EntityBalancingStore.PrefabLocation(entityId));
+                var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                if (controller != null)
+                    foreach (var entityEvent in controller.events)
+                    {
+                        if (entityEvent.@event != EntityController.Event.OnActivateSkill) continue;
+                        if (ActionsChangeMode(entityEvent.actions)) { changesMode = true; break; }
+                        foreach (var conditional in entityEvent.conditionalActions)
+                            if (ActionsChangeMode(conditional.actions)) { changesMode = true; break; }
+                        if (changesMode) break;
+                    }
+            }
+            catch { return true; } // unknown: protect the skill rather than break the unit, and do not cache
+            _skillModeCache[entityId] = changesMode;
+            return changesMode;
+        }
+
+        static bool ActionsChangeMode(List<IEntityAction> actions)
+        {
+            if (actions == null) return false;
+            foreach (var action in actions)
+            {
+                if (action is ChangeEntityParameter || action is CancelEntityParameterChange) return true;
+                if (action is RunSerial serial && ActionsChangeMode(serial.actions)) return true;
+            }
+            return false;
         }
 
         // Size proxy for the donor bands: horizontal footprint of the prefab's mesh bounds,
