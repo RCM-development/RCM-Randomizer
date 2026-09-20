@@ -164,6 +164,18 @@ namespace RCM_Randomizer
         // bands (largest/smallest within maxSizeRatio) and only swap inside their band, so a
         // tiny body never carries a huge gun. Entities left alone in their band keep their
         // stock turret (no map entry).
+        // Why a unit ended up stock, counted while the map is built: without this the only visible
+        // symptom is "the mod stopped mixing", and the cause could be any of five filters.
+        public class DonorMapStats
+        {
+            public int Bases, Paired, BandTooSmall, CannotReceive, VanillaShare, NoFit, NoUsableDonor;
+            public override string ToString()
+                => $"{Paired}/{Bases} mixed; stock: {VanillaShare} by vanilla share, {NoFit} found no fitting weapon, "
+                 + $"{CannotReceive} cannot carry one, {BandTooSmall + NoUsableDonor} had no donor in their size band";
+        }
+
+        public static DonorMapStats LastDonorMapStats = new DonorMapStats();
+
         public static Dictionary<string, string> GenerateDonorMap(int seed, IEnumerable<string> supportedEntities,
                                                                   Func<string, float> sizeOf = null, float maxSizeRatio = 2.5f,
                                                                   Func<string, bool> canDonate = null,
@@ -174,19 +186,23 @@ namespace RCM_Randomizer
             var bases = supportedEntities.Distinct().ToList();
             bases.Sort(StringComparer.Ordinal);
             var map = new Dictionary<string, string>();
+            var stats = LastDonorMapStats = new DonorMapStats { Bases = bases.Count };
             if (bases.Count < 2) return map;
+
+            // every donor that can give a weapon at all, for the fallback below
+            var allUsable = canDonate == null ? new List<string>(bases) : bases.Where(canDonate).ToList();
 
             var rand = new Random(seed ^ 0x7EA5EED);
             foreach (var band in SizeBands(bases, sizeOf, maxSizeRatio))
             {
-                if (band.Count < 2) continue;
+                if (band.Count < 2) { stats.BandTooSmall += band.Count; continue; }
                 // Everyone can RECEIVE a turret, but not everyone can give one (a walker's
                 // "turret" is its torso). Pairing an unusable donor made the swap silently fall
                 // back to stock while the card kept the donor's name. Unusable donors are dropped
                 // here instead, and their would-be recipients draw from the usable pool - reused
                 // round-robin when it is smaller than the band.
                 var usable = canDonate == null ? new List<string>(band) : band.Where(canDonate).ToList();
-                if (usable.Count == 0) continue; // whole band stays stock
+                if (usable.Count == 0) { stats.NoUsableDonor += band.Count; continue; }
                 Shuffle(usable, rand);
                 int next = 0;
                 foreach (var baseId in band)
@@ -194,28 +210,50 @@ namespace RCM_Randomizer
                     // a base the mixer will not touch (a ranged unit that aims with its whole
                     // body would keep a visible gun that never fires) gets no pairing at all, so
                     // it is neither renamed nor priced as a mix
-                    if (canReceive != null && !canReceive(baseId)) continue;
+                    if (canReceive != null && !canReceive(baseId)) { stats.CannotReceive++; continue; }
                     // Part of the roster stays vanilla on every seed, so stock units remain playable
                     // next to the mixes. Own stream per unit: the share can change without reshuffling
                     // who is paired with whom.
-                    if (mixedShare < 1f && new Random(seed ^ Fnv1a("vanilla:" + baseId)).NextDouble() >= mixedShare) continue;
-                    // the next usable donor that FITS this base (weapon class, level, price class); a base
-                    // nothing fits stays stock rather than carry a gun that contradicts what it is
-                    string donor = null;
-                    for (int step = 0; step < usable.Count; step++)
+                    if (mixedShare < 1f && new Random(seed ^ Fnv1a("vanilla:" + baseId)).NextDouble() >= mixedShare) { stats.VanillaShare++; continue; }
+
+                    // A donor that FITS this base (weapon class, level, price class). The size band is
+                    // the first choice, because a gun that suits the body is the point of the feature -
+                    // but a band is often only a handful of units, and with the fit rules on top most
+                    // bases found nothing at all and the whole roster went stock. So if the band has no
+                    // fit, the search widens to every usable donor whose model is within the same size
+                    // ratio; only then does the unit stay stock.
+                    string donor = PickDonor(band, usable, baseId, next, compatible);
+                    if (donor == null && sizeOf != null)
                     {
-                        string candidate = usable[(next + step) % usable.Count];
-                        if (candidate == baseId) continue;
-                        if (compatible != null && !compatible(baseId, candidate)) continue;
-                        donor = candidate;
-                        break;
+                        float baseSize = Math.Max(0.01f, SafeSize(sizeOf, baseId));
+                        var wider = allUsable.Where(id =>
+                        {
+                            float size = Math.Max(0.01f, SafeSize(sizeOf, id));
+                            float ratio = size > baseSize ? size / baseSize : baseSize / size;
+                            return ratio <= maxSizeRatio;
+                        }).ToList();
+                        Shuffle(wider, new Random(seed ^ Fnv1a("wider:" + baseId)));
+                        donor = PickDonor(wider, wider, baseId, 0, compatible);
                     }
-                    if (donor == null) continue;
+                    if (donor == null) { stats.NoFit++; continue; }
                     map[baseId] = donor;
+                    stats.Paired++;
                     next++;
                 }
             }
             return map;
+        }
+
+        static string PickDonor(List<string> band, List<string> usable, string baseId, int next, Func<string, string, bool> compatible)
+        {
+            for (int step = 0; step < usable.Count; step++)
+            {
+                string candidate = usable[(next + step) % usable.Count];
+                if (candidate == baseId) continue;
+                if (compatible != null && !compatible(baseId, candidate)) continue;
+                return candidate;
+            }
+            return null;
         }
 
         // Power delta of receiving another unit's turret. What physically transfers is the fire

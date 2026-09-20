@@ -116,7 +116,7 @@ namespace RCM_Randomizer
                 "Seeded turret assignment for RCM_UnitsMixNMatch (if installed): every unit keeps the same donor turret for the whole run instead of rerolling per spawn.");
             _turretMaxSizeRatio = Config.Bind("TurretShuffle", "MaxSizeRatio", 2.5f,
                 new ConfigDescription("Units only swap turrets within a size band: biggest/smallest model footprint in a band stays under this ratio, so tiny bodies never carry huge guns. Higher = wilder combinations.", new AcceptableValueRange<float>(1f, 10f)));
-            _mixedShare = Config.Bind("TurretShuffle", "MixedShare", 0.5f,
+            _mixedShare = Config.Bind("TurretShuffle", "MixedShare", 0.8f,
                 new ConfigDescription("Share of the roster that gets another unit's turret on a given seed. The rest stays vanilla, so stock units remain playable next to the mixes; which ones changes with the seed. 1 = mix everything that can be mixed.", new AcceptableValueRange<float>(0f, 1f)));
             _weaponPricing = Config.Bind("TurretShuffle", "WeaponPricing", true,
                 "Receiving another unit's weapon changes the card's cost: extra barrels are priced by the budget model, and per-donor overrides cover projectile quality the data can't see.");
@@ -792,11 +792,11 @@ namespace RCM_Randomizer
         // playtests produced an 18-range deployable artillery truck with a 3.8-range walker gun, T0
         // artillery with a refinery spawner's sidearm (a level-50 unit's, on a level-0 card), and a
         // 140-credit support tank with an 800-credit beam.
-        //  - weapon class: the donor's range within 0.6x - 1.7x of the chassis' own, so artillery stays
-        //    artillery and brawlers stay brawlers (melee hosts, range 0, take short guns up to 6);
+        //  - weapon class: the donor's range within 0.5x - 2x of the chassis' own, so artillery stays
+        //    artillery and brawlers stay brawlers (melee hosts, range 0, take short guns up to 8);
         //  - level: the donor must not unlock later than the chassis does - a stronger weapon arrives
         //    with the level that unlocks it, not smuggled in on an early card;
-        //  - price class: no gun from a unit more than 3x the price of the chassis;
+        //  - price class: no gun from a unit more than 4x the price of the chassis;
         //  - a real combat unit: not a spawner, refinery, harvester, engineer or factory sidearm.
         static bool WeaponFits(string baseId, string donorId)
         {
@@ -807,13 +807,13 @@ namespace RCM_Randomizer
 
                 float baseRange = EntityBalancingStore.WeaponRange(baseId, returnOriginalValueFromBalancingFile: true);
                 float donorRange = EntityBalancingStore.WeaponRange(donorId, returnOriginalValueFromBalancingFile: true);
-                if (baseRange < 0.01f) { if (donorRange > 6f) return false; }
-                else if (donorRange < baseRange * 0.6f || donorRange > baseRange * 1.7f) return false;
+                if (baseRange < 0.01f) { if (donorRange > 8f) return false; }
+                else if (donorRange < baseRange * 0.5f || donorRange > baseRange * 2f) return false;
 
                 if (UnlockLevelOf(donorId) > UnlockLevelOf(baseId)) return false;
 
                 float baseCost = CardCostOf(baseId), donorCost = CardCostOf(donorId);
-                if (baseCost > 1f && donorCost > baseCost * 3f) return false;
+                if (baseCost > 1f && donorCost > baseCost * 4f) return false;
                 return true;
             }
             catch { return false; }
@@ -882,6 +882,7 @@ namespace RCM_Randomizer
             Func<string, bool> canReceive = MixerPredicate(mixerType, "CanReceive");
             _donorMap = RollEngine.GenerateDonorMap(seed, relevant, ModelFootprint, _turretMaxSizeRatio.Value, canDonate, canReceive,
                 WeaponFits, _mixedShare.Value);
+            RCMManager.Log("Randomizer: turret donors -> " + RollEngine.LastDonorMapStats);
             var map = _donorMap;
             selectorField.SetValue(null, new Func<string, string>(id =>
             {
