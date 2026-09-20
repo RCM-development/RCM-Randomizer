@@ -57,6 +57,10 @@ namespace RCM_Randomizer
         ConfigEntry<float> _level0Share;
         ConfigEntry<int> _salvageCount;
         ConfigEntry<int> _salvageFirstLevel;
+        ConfigEntry<bool> _vault;
+        ConfigEntry<int> _vaultFirstLevel;
+        ConfigEntry<int> _advancedUpgradeCount;
+        ConfigEntry<int> _advancedHackCount;
         ConfigEntry<bool> _runPacing;
         ConfigEntry<bool> _veterancyChevrons;
         ConfigEntry<float> _veterancyRankCost;
@@ -209,6 +213,14 @@ namespace RCM_Randomizer
                 new ConfigDescription("Cards that let you build the ENEMY's own units, unlocked above the vanilla track (which ends at level 48) so levelling past it keeps handing out something new. The data holds 65 armed enemy units with no card of their own; each salvage card is a foundry for one of them, Ultra Rare and priced at 2.5x the unit. 0 disables.", new AcceptableValueRange<int>(0, 20)));
             _salvageFirstLevel = Config.Bind("Progression", "SalvageFirstLevel", 50,
                 new ConfigDescription("Level the first salvage card unlocks at; the rest follow every four levels.", new AcceptableValueRange<int>(10, 200)));
+            _vault = Config.Bind("Progression", "Vault", false,
+                "EXPERIMENTAL. Put the game's own switched-off content on the extended track: blueprint cards whose prefabs still load (Juggernaut, Spidertank, Lightning Walker, Firebrand ...), finished hacks, upgrades and a drop, one item every two levels from VaultFirstLevel in a seeded order. Skipped: the developers' test entries, anything written for a system the game no longer has (Robo Cores, research) or for a switched-off specialist, and rows the game marks as never. Checked to LOAD, not proven to play - cut content is cut for reasons only the studio knows.");
+            _vaultFirstLevel = Config.Bind("Progression", "VaultFirstLevel", 52,
+                new ConfigDescription("Level of the first vault item. Lower it to try the vault on a young profile.", new AcceptableValueRange<int>(0, 300)));
+            _advancedUpgradeCount = Config.Bind("Upgrades", "AdvancedCount", 8,
+                new ConfigDescription("Generated 'Mk II' upgrades for the levels after the vanilla track ends (its last upgrade unlocks at level 50): the same templates at 1.6x the numbers and 1.8x the price, one every four levels from 51. 0 disables.", new AcceptableValueRange<int>(0, 30)));
+            _advancedHackCount = Config.Bind("Hacks", "AdvancedCount", 8,
+                new ConfigDescription("Generated 'Mk II' hacks for the levels after the vanilla track ends (its last hack unlocks at level 50): 1.6x the numbers, one every four levels from 53. 0 disables.", new AcceptableValueRange<int>(0, 30)));
             _runPacing = Config.Bind("Progression", "PaceBlueprintsWithinRun", true,
                 "Within a run, blueprint rewards start at the cheap end of each rarity band and the ceiling rises as the run progresses, so the expensive units arrive later instead of on level one.");
             _runPacingStart = Config.Bind("Progression", "PaceStartingFraction", 0.45f,
@@ -296,7 +308,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_unlockByPower.Value}|{_level0Share.Value:F2}|{_salvageCount.Value}|{_salvageFirstLevel.Value}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_unlockByPower.Value}|{_level0Share.Value:F2}|{_salvageCount.Value}|{_salvageFirstLevel.Value}|{_vault.Value}|{_vaultFirstLevel.Value}|{_advancedUpgradeCount.Value}|{_advancedHackCount.Value}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -348,6 +360,10 @@ namespace RCM_Randomizer
                 SalvagedTech.Enabled = _salvageCount.Value > 0; SalvagedTech.Count = _salvageCount.Value;
                 SalvagedTech.FirstLevel = _salvageFirstLevel.Value;
                 SalvagedTech.Apply(seed); // after UnlockLevels: its own levels sit above that track
+                Vault.Enabled = _vault.Value; Vault.FirstLevel = _vaultFirstLevel.Value;
+                Vault.Apply(seed); // before the donor map and the rolls, so reopened cards are treated like any other
+                GeneratedUpgrades.AdvancedCount = _advancedUpgradeCount.Value;
+                GeneratedHacks.AdvancedCount = _advancedHackCount.Value;
                 if (_generatedDropCount.Value > 0) GeneratedDrops.Apply(seed, luck, _generatedDropCount.Value); // before ApplyRolls so they join the roll universe
                 WeaponWatchdog.Enabled = _watchWeapons.Value;
                 WeaponWatchdog.DonorOf = id => _donorMap != null && _donorMap.TryGetValue(id, out string d) ? d : null;
@@ -579,6 +595,7 @@ namespace RCM_Randomizer
             GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
             GeneratedHacks.Deactivate();
             GeneratedDrops.Deactivate();
+            Vault.Restore();
             SalvagedTech.Deactivate();
             UnlockLevels.Restore();
             Titans.Deactivate();

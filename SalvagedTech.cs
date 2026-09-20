@@ -24,6 +24,7 @@ namespace RCM_Randomizer
         public static int FirstLevel = 50;
         public static int LevelStep = 4;
 
+        public static readonly HashSet<string> Products = new HashSet<string>();
         static readonly Dictionary<string, int> AppendedRows = new Dictionary<string, int>();
         static readonly Dictionary<string, KeyValuePair<string, string>> LocaEntries = new Dictionary<string, KeyValuePair<string, string>>();
 
@@ -32,6 +33,7 @@ namespace RCM_Randomizer
         public static void Apply(int seed)
         {
             Deactivate();
+            Products.Clear();
             if (!Enabled || Count <= 0) return;
             var list = EntityBalancingStore.EntityBalancingParametersList;
 
@@ -53,7 +55,10 @@ namespace RCM_Randomizer
             // Firebrand and the CF tanks all have AI-only factories, which are not cards.
             var built = new HashSet<string>(list.Where(r => r.factoryForEntityId.hasValue && r.isAllowedAsBlueprint && !r.inactive)
                                                 .Select(r => r.factoryForEntityId.value));
-            var pool = list.Where(r => !r.isAllowedAsBlueprint && !r.inactive && !built.Contains(r.entityId)
+            // a specialist's unit arrives through the specialist system (the Mantis Mech turned up here)
+            var specialists = new HashSet<string>();
+            try { foreach (var s in SpecialistBalancingStore._specialistBalancingScriptableObject.parameters) specialists.Add(s.specialistId); } catch { }
+            var pool = list.Where(r => !r.isAllowedAsBlueprint && !r.inactive && !built.Contains(r.entityId) && !specialists.Contains(r.entityId)
                                        && !Titans.IsGenerated(r.entityId) && !IsGenerated(r.entityId)
                                        && (r.roles & notAUnit) == 0
                                        && (r.tech & Tech.Ancient) == 0
@@ -88,7 +93,9 @@ namespace RCM_Randomizer
                 card.inactive = false;
 
                 Write(card);
-                EntityBalancingStore.FactoryEntityIdOf[unit.entityId] = cardId;
+                // the reverse map (unit -> factory) is left alone: it still points at the enemy's own
+                // factory, and the card only needs the forward direction to build
+                Products.Add(unit.entityId);
 
                 string unitName = NameOf(unit.entityId);
                 SetLoca(cardId, "Salvaged " + unitName,

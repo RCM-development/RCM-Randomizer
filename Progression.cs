@@ -38,6 +38,17 @@ namespace RCM_Randomizer
             return Math.Min(MaxTier, tier);
         }
 
+        // Hacks and upgrades have no rarity dimension in vanilla (all 149 + 87 are Common; level is the
+        // only gate), so their tier comes from power alone.
+        public static int TierOfPower(float power)
+        {
+            if (power < 0.04f) return 0;
+            if (power < 0.08f) return 1;
+            if (power < 0.12f) return 2;
+            if (power < 0.16f) return 3;
+            return MaxTier;
+        }
+
         // The level at which the game itself will start offering this tier.
         public static int NeededExperienceLevelFor(int tier)
         {

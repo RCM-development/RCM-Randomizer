@@ -31,6 +31,7 @@ namespace RCM_Randomizer
             public UnitRole RoleGate = UnitRole.All;
             public string RoleWord; // null = applies to all cards
             public float Power;     // drives the progression tier, not just the price
+            public int Level;       // > 0: an advanced card with a fixed level above the vanilla track
             public BehaviourMods.Spec Behaviour; // null for plain stat upgrades
             public List<RolledStatPart> Parts = new List<RolledStatPart>();
         }
@@ -78,21 +79,30 @@ namespace RCM_Randomizer
         static readonly Dictionary<string, int> AppendedRows = new Dictionary<string, int>();
         static readonly Dictionary<string, KeyValuePair<string, string>> LocaEntries = new Dictionary<string, KeyValuePair<string, string>>(); // lower id -> (name, desc)
         static List<string> _stockImageLocations;
+        static float _boost = 1f; // 1.6 while the advanced series is generated
+
+        // The ADVANCED series continues the cards past the end of the vanilla track (level 50): the same
+        // templates at 1.6x the numbers, one every AdvancedLevelStep levels from AdvancedFirstLevel.
+        // Their ids are separate from the base series, so changing either count never renumbers the
+        // other - a save that owns "rcmgen_up_adv3" keeps meaning the same card.
+        public static int AdvancedCount = 8;
+        public static int AdvancedFirstLevel = 51;
+        public static int AdvancedLevelStep = 4;
+        const string AdvancedInfix = "adv";
 
         public static void Apply(int seed, float luck, int count)
         {
             var specs = Generate(seed, luck, count);
-            EnsureRows(specs.Count);
+            foreach (var spec in specs) EnsureRow(spec.Id);
 
             int locked = 0;
-            for (int i = 0; i < AppendedRows.Count; i++)
+            foreach (string id in AppendedRows.Keys.ToList())
             {
-                string id = IdPrefix + i;
                 int index = AppendedRows[id];
                 var parameters = UpgradeBalancingStore._upgradeBalancingScriptableObject.parameters[index];
-                if (i < specs.Count)
+                var spec = specs.FirstOrDefault(s => s.Id == id);
+                if (spec != null)
                 {
-                    var spec = specs[i];
                     if (!WriteRow(ref parameters, spec)) locked++;
                     RebuildChanges(parameters.scriptableObject, spec);
                     SetLoca(id, spec.Name, spec.Description);
@@ -149,6 +159,35 @@ namespace RCM_Randomizer
                 if (spec.Name == null) spec.Name = NamePool[rand.Next(NamePool.Length)];
                 specs.Add(spec);
             }
+            // the advanced series: own seed stream, own ids, bigger numbers, levels above the track
+            for (int j = 0; j < AdvancedCount; j++)
+            {
+                var rand = new System.Random(seed ^ Fnv1a("genupadv:" + j));
+                var spec = new Spec { Id = IdPrefix + AdvancedInfix + j, Level = AdvancedFirstLevel + j * AdvancedLevelStep };
+                _boost = 1.6f;
+                try
+                {
+                    switch (rand.Next(5)) // no behaviour rules here: their effect is a rule, not a number to scale
+                    {
+                        case 0: GenerateTradeOff(spec, rand, luck); break;
+                        case 1: GenerateRoleThemed(spec, rand, luck); break;
+                        case 2: GenerateDoubleEdged(spec, rand, luck); break;
+                        case 3: GenerateRoleTrade(spec, rand, luck); break;
+                        default: GeneratePureBuff(spec, rand, luck); break;
+                    }
+                }
+                finally { _boost = 1f; }
+                if (spec.Name == null) spec.Name = NamePool[rand.Next(NamePool.Length)];
+                spec.Name += " Mk II";
+                spec.Coins = (int)(spec.Coins * 1.8f);
+                specs.Add(spec);
+            }
+            // Vanilla has no rarity dimension for upgrades: all 87 are Common and LEVEL is the only gate.
+            // A reward or shop slot draws from the requested rarity first and falls back to Common only
+            // when that pool is empty - so a handful of generated Rare cards were the ONLY candidates at
+            // every Rare node. Generated upgrades are Common like the rest; power is carried by level
+            // and price.
+            foreach (var spec in specs) spec.Rarity = Rarity.Common;
             // disambiguate duplicate names ("Field Mod II")
             var used = new Dictionary<string, int>();
             foreach (var spec in specs)
@@ -167,6 +206,8 @@ namespace RCM_Randomizer
             bool stationary = role == UnitRole.Building || role == UnitRole.Turret;
             if (stationary && stat.value == EntityBalancingStore.ChangeableValue.MoveSpeed) return false;
             if (role == UnitRole.Melee && stat.value == EntityBalancingStore.ChangeableValue.WeaponRange) return false;
+            // a reward for level 50+ has to be worth having: sight stays a drawback there, never the headline
+            if (!asDrawback && _boost > 1f && stat.value == EntityBalancingStore.ChangeableValue.SightRadius) return false;
             if (!asDrawback) return true;
             switch (stat.value)
             {
@@ -197,7 +238,7 @@ namespace RCM_Randomizer
             var buff = PickStat(rand, UnitRole.None, asDrawback: false);
             var nerf = PickStat(rand, UnitRole.None, asDrawback: true, buff.value);
 
-            float buffPct = CapBuff(buff, 0.18f + (float)rand.NextDouble() * 0.22f); // 18..40%
+            float buffPct = CapBuff(buff, (0.18f + (float)rand.NextDouble() * 0.22f) * _boost); // 18..40%
             float buffMult = buff.lowerIsBetter ? 1f - buffPct : 1f + buffPct;
             float nerfMult = PaybackMultiplier(nerf, BuffPower(buff, buffMult), luck, out float unpaid);
 
@@ -214,7 +255,7 @@ namespace RCM_Randomizer
 
         // -50 percent cooldown or cost is a doubling, not a 50 percent buff: keep those at 35
         static float CapBuff((EntityBalancingStore.ChangeableValue value, string word, bool lowerIsBetter) stat, float pct)
-            => stat.lowerIsBetter ? Math.Min(pct, 0.35f) : pct;
+            => stat.lowerIsBetter ? Math.Min(pct, _boost > 1f ? 0.5f : 0.35f) : pct;
 
         // log-power a buff is worth, always positive
         static float BuffPower((EntityBalancingStore.ChangeableValue value, string word, bool lowerIsBetter) stat, float mult)
@@ -240,7 +281,7 @@ namespace RCM_Randomizer
             var first = PickStat(rand, UnitRole.None, asDrawback: false);
             var second = PickStat(rand, UnitRole.None, asDrawback: false, first.value);
             var picks = new[] { first, second, PickStat(rand, UnitRole.None, asDrawback: true, first.value, second.value) };
-            float pctA = 0.15f + (float)rand.NextDouble() * 0.20f, pctB = 0.12f + (float)rand.NextDouble() * 0.18f;
+            float pctA = CapBuff(first, (0.15f + (float)rand.NextDouble() * 0.20f) * _boost), pctB = CapBuff(second, (0.12f + (float)rand.NextDouble() * 0.18f) * _boost);
             float multA = picks[0].lowerIsBetter ? 1f - pctA : 1f + pctA;
             float multB = picks[1].lowerIsBetter ? 1f - pctB : 1f + pctB;
             float nerfMult = PaybackMultiplier(picks[2], BuffPower(picks[0], multA) + BuffPower(picks[1], multB), luck, out float unpaid);
@@ -263,7 +304,7 @@ namespace RCM_Randomizer
             var role = RolePool[rand.Next(RolePool.Length)];
             var buff = PickStat(rand, role.role, asDrawback: false);
             var nerf = PickStat(rand, role.role, asDrawback: true, buff.value);
-            float buffPct = CapBuff(buff, 0.22f + (float)rand.NextDouble() * 0.26f); // 22..48%
+            float buffPct = CapBuff(buff, (0.22f + (float)rand.NextDouble() * 0.26f) * _boost); // 22..48%
             float buffMult = buff.lowerIsBetter ? 1f - buffPct : 1f + buffPct;
             float nerfMult = PaybackMultiplier(nerf, BuffPower(buff, buffMult), luck, out float unpaid);
 
@@ -285,7 +326,7 @@ namespace RCM_Randomizer
         {
             var role = RolePool[rand.Next(RolePool.Length)];
             var stat = PickStat(rand, role.role, asDrawback: false);
-            float pct = 0.12f + (float)rand.NextDouble() * (0.20f + 0.08f * Math.Min(2f, luck));
+            float pct = CapBuff(stat, (0.12f + (float)rand.NextDouble() * (0.20f + 0.08f * Math.Min(2f, luck))) * _boost);
             float mult = stat.lowerIsBetter ? 1f - pct : 1f + pct;
 
             spec.Parts.Add(new RolledStatPart { Value = stat.value, Multiplier = mult });
@@ -301,7 +342,7 @@ namespace RCM_Randomizer
         static void GeneratePureBuff(Spec spec, System.Random rand, float luck)
         {
             var stat = StatPool[rand.Next(StatPool.Length)];
-            float pct = 0.08f + (float)rand.NextDouble() * (0.22f + 0.10f * Math.Min(2f, luck));
+            float pct = CapBuff(stat, (0.08f + (float)rand.NextDouble() * (0.22f + 0.10f * Math.Min(2f, luck))) * _boost);
             float mult = stat.lowerIsBetter ? 1f - pct : 1f + pct;
             float power = Math.Abs(RollEngine.WeightOf(stat.value)) * pct;
 
@@ -344,7 +385,7 @@ namespace RCM_Randomizer
 
         // ---- registration ----------------------------------------------------------------------
 
-        static void EnsureRows(int count)
+        static void EnsureRow(string id)
         {
             var parameters = UpgradeBalancingStore._upgradeBalancingScriptableObject.parameters;
             if (_stockImageLocations == null)
@@ -352,9 +393,8 @@ namespace RCM_Randomizer
                     .Where(p => !IsGenerated(p.upgradeId) && !string.IsNullOrEmpty(p.imageLocation))
                     .Select(p => p.imageLocation).Distinct().ToList();
 
-            for (int i = AppendedRows.Count; i < count; i++)
+            if (!AppendedRows.ContainsKey(id))
             {
-                string id = IdPrefix + i;
                 var so = ScriptableObject.CreateInstance<CardUpgradeScriptableObject>();
                 so.cardChanges = new List<CardChangeScriptableObject>();
                 so.entityMods = new List<EntityModScriptableObject>();          // null NREs at unit spawn
@@ -365,7 +405,7 @@ namespace RCM_Randomizer
                 {
                     upgradeId = id,
                     scriptableObject = so,
-                    imageLocation = _stockImageLocations.Count > 0 ? _stockImageLocations[i % _stockImageLocations.Count] : "",
+                    imageLocation = _stockImageLocations.Count > 0 ? _stockImageLocations[AppendedRows.Count % _stockImageLocations.Count] : "",
                     coinsAmount = 100,
                     tech = Tech.All, // Colorless could fail the run's allowed-techs AND-mask
                     rarity = Rarity.Common,
@@ -386,11 +426,12 @@ namespace RCM_Randomizer
         // how much of the generated pool is still ahead of the player.
         static bool WriteRow(ref UpgradeBalancingParameters row, Spec spec)
         {
-            int tier = Progression.TierOf(spec.Rarity, spec.Power);
+            // an advanced card is gated by its level alone: reaching level 50 is the proof of play
+            int tier = spec.Level > 0 ? 0 : Progression.TierOfPower(spec.Power);
             bool unlocked = Progression.IsUnlocked(tier);
             row.coinsAmount = spec.Coins;
             row.rarity = spec.Rarity;
-            row.neededExperienceLevel = Progression.NeededExperienceLevelFor(tier);
+            row.neededExperienceLevel = spec.Level > 0 ? spec.Level : Progression.NeededExperienceLevelFor(tier);
             row.inactive = !unlocked;
             row.scriptableObject.entityMustHaveOneOfTheseRoles = spec.RoleGate;
             return unlocked;

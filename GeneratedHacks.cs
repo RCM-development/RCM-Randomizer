@@ -50,25 +50,39 @@ namespace RCM_Randomizer
         static readonly Dictionary<string, int> AppendedRows = new Dictionary<string, int>();
         static readonly Dictionary<string, KeyValuePair<string, string>> LocaEntries = new Dictionary<string, KeyValuePair<string, string>>();
 
+        // The ADVANCED series continues past the end of the vanilla track (its last hack unlocks at
+        // level 50): the same three shapes at 1.6x the numbers, one every AdvancedLevelStep levels.
+        // Separate ids, so neither count ever renumbers the other series.
+        public static int AdvancedCount = 8;
+        public static int AdvancedFirstLevel = 53;
+        public static int AdvancedLevelStep = 4;
+        const string AdvancedInfix = "adv";
+        static bool _advanced;
+
         public static void Apply(int seed, float luck, int count)
         {
-            EnsureRows(count);
+            var wanted = new Dictionary<string, int>(); // id -> index within its series
+            for (int i = 0; i < count; i++) wanted[IdPrefix + i] = i;
+            for (int j = 0; j < AdvancedCount; j++) wanted[IdPrefix + AdvancedInfix + j] = j;
+            foreach (string id in wanted.Keys) EnsureRow(id);
+
             int written = 0;
-            for (int i = 0; i < AppendedRows.Count; i++)
+            foreach (string id in AppendedRows.Keys.ToList())
             {
-                string id = IdPrefix + i;
                 int index = AppendedRows[id];
                 var parameters = RelicBalancingStore._relicBalancingScriptableObject.parameters[index];
-                if (i < count)
+                if (wanted.TryGetValue(id, out int n))
                 {
-                    var rand = new System.Random(seed ^ Fnv1a("genhack:" + i));
-                    WriteContent(ref parameters, rand, luck, id);
+                    bool advanced = id.StartsWith(IdPrefix + AdvancedInfix, StringComparison.Ordinal);
+                    var rand = new System.Random(seed ^ Fnv1a((advanced ? "genhackadv:" : "genhack:") + n));
+                    if (advanced) WriteContent(ref parameters, rand, luck, id, 1.6f, AdvancedFirstLevel + n * AdvancedLevelStep);
+                    else WriteContent(ref parameters, rand, luck, id);
                     if (!parameters.inactive) written++;
                 }
                 else parameters.inactive = true;
                 RelicBalancingStore._relicBalancingScriptableObject.parameters[index] = parameters;
             }
-            if (count > 0) TestMod.RCMManager.Log($"Randomizer: {count} hacks generated, {written} unlocked ({Progression.Describe()})");
+            if (wanted.Count > 0) TestMod.RCMManager.Log($"Randomizer: {wanted.Count} hacks generated, {written} unlocked ({Progression.Describe()})");
         }
 
         public static void Deactivate()
@@ -93,8 +107,9 @@ namespace RCM_Randomizer
         //   0 plain     "All turrets get +12 percent damage."
         //   1 trade-off "All units get +28 percent speed, but -14 percent HP."  strong, self-paid, cheap
         //   2 twin      "All buildings get +10 percent HP and -9 percent cost."  two smaller buffs, Rare
-        static void WriteContent(ref RelicBalancingParameters row, System.Random rand, float luck, string id)
+        static void WriteContent(ref RelicBalancingParameters row, System.Random rand, float luck, string id, float boost = 1f, int level = 0)
         {
+            _advanced = level > 0; // sight is never the headline of a level 50+ reward
             var role = RolePool[rand.Next(RolePool.Length)];
             int shape = rand.Next(3);
             var first = PickStat(rand, role.role, asDrawback: false);
@@ -105,7 +120,8 @@ namespace RCM_Randomizer
             if (shape == 1)
             {
                 var drawback = PickStat(rand, role.role, asDrawback: true, first.value);
-                float pct = 0.15f + (float)rand.NextDouble() * 0.20f; // 15..35%
+                float pct = (0.15f + (float)rand.NextDouble() * 0.20f) * boost; // 15..35%
+                if (first.lowerIsBetter) pct = Math.Min(pct, 0.5f);
                 float mult = first.lowerIsBetter ? 1f - pct : 1f + pct;
                 float buffPower = Math.Abs(RollEngine.WeightOf(first.value)) * (float)Math.Abs(Math.Log(mult));
                 float weight = Math.Max(0.05f, Math.Abs(RollEngine.WeightOf(drawback.value)));
@@ -121,8 +137,8 @@ namespace RCM_Randomizer
             else if (shape == 2)
             {
                 var second = PickStat(rand, role.role, asDrawback: false, first.value);
-                float pctA = 0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck));
-                float pctB = 0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck));
+                float pctA = (0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck))) * boost;
+                float pctB = (0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck))) * boost;
                 float multA = first.lowerIsBetter ? 1f - pctA : 1f + pctA, multB = second.lowerIsBetter ? 1f - pctB : 1f + pctB;
                 AddChange(row, first.value, multA, role.role);
                 AddChange(row, second.value, multB, role.role);
@@ -132,7 +148,7 @@ namespace RCM_Randomizer
             }
             else
             {
-                float pct = 0.06f + (float)rand.NextDouble() * (0.10f + 0.05f * Math.Min(2f, luck));
+                float pct = (0.06f + (float)rand.NextDouble() * (0.10f + 0.05f * Math.Min(2f, luck))) * boost;
                 float mult = first.lowerIsBetter ? 1f - pct : 1f + pct;
                 AddChange(row, first.value, mult, role.role);
                 power = Math.Abs(RollEngine.WeightOf(first.value)) * pct;
@@ -140,10 +156,14 @@ namespace RCM_Randomizer
                 description = $"All {role.word} get {Part(first.word, mult)}.";
             }
 
-            row.rarity = power > 0.06f ? Rarity.Rare : Rarity.Common;
+            // Common like all 149 vanilla hacks: a reward or shop slot draws from the requested rarity and
+            // only falls back to Common when that pool is EMPTY, so a few generated Rare hacks were the
+            // only candidates at every Rare node. Level is how the game gates hacks; power sets the level.
+            row.rarity = Rarity.Common;
+            if (level > 0) name += " Mk II";
             row.coinsAmount = (int)(120 + 1600 * power * (1f - Math.Min(0.4f, 0.12f * luck)));
-            int tier = Progression.TierOf(row.rarity, power);
-            row.neededExperienceLevel = Progression.NeededExperienceLevelFor(tier);
+            int tier = level > 0 ? 0 : Progression.TierOfPower(power);
+            row.neededExperienceLevel = level > 0 ? level : Progression.NeededExperienceLevelFor(tier);
             row.inactive = !Progression.IsUnlocked(tier);
 
             string key = id.ToLowerInvariant();
@@ -170,6 +190,7 @@ namespace RCM_Randomizer
         {
             bool stationary = role == UnitRole.Building || role == UnitRole.Turret;
             var pool = StatPool.Where(s => !except.Contains(s.value)
+                && !(_advanced && !asDrawback && s.value == EntityBalancingStore.ChangeableValue.SightRadius)
                 && !(stationary && s.value == EntityBalancingStore.ChangeableValue.MoveSpeed)
                 && !(role == UnitRole.Melee && s.value == EntityBalancingStore.ChangeableValue.WeaponRange)
                 && !(asDrawback && s.value == EntityBalancingStore.ChangeableValue.MaxShield)).ToArray();
@@ -177,16 +198,15 @@ namespace RCM_Randomizer
         }
 
 
-        static void EnsureRows(int count)
+        static void EnsureRow(string id)
         {
             var parameters = RelicBalancingStore._relicBalancingScriptableObject.parameters;
             string stockImage = null;
             foreach (var p in parameters)
                 if (!IsGenerated(p.relicId) && !string.IsNullOrEmpty(p.imageLocation)) { stockImage = p.imageLocation; break; }
 
-            for (int i = AppendedRows.Count; i < count; i++)
+            if (!AppendedRows.ContainsKey(id))
             {
-                string id = IdPrefix + i;
                 var so = ScriptableObject.CreateInstance<RelicScriptableObject>();
                 so.cardChanges = new List<CardChangeScriptableObject>();
                 var row = new RelicBalancingParameters

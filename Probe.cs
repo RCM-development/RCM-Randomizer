@@ -54,6 +54,7 @@ namespace RCM_Randomizer
                 }
                 catch (Exception e) { sb.AppendLine("blueprints FAILED " + e.Message); }
                 sb.AppendLine();
+                ProbeProgression.Dump(sb);
                 sb.AppendLine("# salvage cards: enemy units unlocked above the vanilla track");
                 try
                 {

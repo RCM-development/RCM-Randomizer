@@ -6,6 +6,17 @@ Playtest fixes. Every cause below was read off the game's own prefab data with t
 
 
 
+
+### Eighth round: the track after level 50
+
+Measured before anything was placed (`ProbeProgression.cs`, in the probe dump): every vanilla track ends at 50 - 149 hacks (51 at level 0), 87 upgrades (27 at level 0), 37 drops (last at 45), engineers by 16, specialists by 21 - and every hack and upgrade is rarity Common.
+
+- **Generated hacks and upgrades are Common now, gated by level like the game's own.** A reward or shop slot draws from the requested rarity first and falls back to Common only when that pool is EMPTY. Vanilla's Rare and Ultra Rare hack and upgrade pools are empty by design, so the mod's few Rare cards were the only candidates at every Rare node and shop slot. Power now sets the level (0 / 12 / 24 / 36 / 48) and the price.
+- **Mk II series** (`Upgrades.AdvancedCount`, `Hacks.AdvancedCount`, 8 each): the same templates at 1.6x the numbers and a higher price, one every four levels - upgrades from 51, hacks from 53. Own ids (`rcmgen_up_adv3`), so neither count renumbers the other series. Sight is never the headline of a level 50+ reward.
+- **Vault** (`Progression.Vault`, off by default, EXPERIMENTAL): the game ships content switched off - blueprint cards whose prefabs still load (Juggernaut, Spidertank, Lightning Walker, Crawl Mech, Firebrand, EMP Marine, Frontificator, Ramster ...), finished hacks (Spiky Delight, Shared Survival, Glass Half Full, Long Term Plan ...), two upgrades and a drop. The vault puts 37 of them on the extended track, one every two levels from 52 to 124, in a seeded order. Left out: the developers' test entries (`_...`), anything written for a system the game no longer has (Robo Cores, research) or for a switched-off specialist, specialist units, never-levels (999+), and anything whose prefab or text is missing. Checked to load; NOT proven to play - cut content is cut for reasons only the studio knows.
+- Salvage no longer offers specialist units (the Mantis Mech had turned up), leaves the enemy's own factory mapping alone, and its units are kept out of the player-side stat rolls, which would have changed the enemy copies too.
+
+With everything on, levels 50-81 unlock something at almost every level (salvage 50/54/.., Mk II upgrades 51/55/.., vault 52/54/.., Mk II hacks 53/57/..), and the vault continues to 124.
 ### Seventh playtest round
 
 - **Unlock levels rebuilt from what a card does** (`UnlockLevels.cs`, `Progression.UnlockByPower`). Measured first: vanilla opens 65 blueprints at level 0, and that pool is not a gentle one - it holds the Ultra Turret (40 dps, map range), the Missile Mech, the Gatling Walker and the Artillery Truck (range 18 siege). Each card now carries a power score from sustained damage and splash, reach and price, and the track is rebuilt from it: the weakest cards stay open, the rest spread across the track in power order with seeded jitter, so every profile unlocks them in its own order. A card is never offered EARLIER than the game intended, and the game's own starting deck is never gated - a fresh profile keeps something to begin with. On the test seed: 26 cards at level 0 (strongest 10 dps), Artillery Truck at 39, T3 Gatling at 38, Ultra Turret at 44, Missile Mech at 45; 63 cards moved later. `Progression.OpenAtLevel0` sets how much of the roster starts open.
