@@ -796,6 +796,8 @@ namespace RCM_Randomizer
         //    artillery and brawlers stay brawlers (melee hosts, range 0, take short guns up to 8);
         //  - level: the donor must not unlock later than the chassis does - a stronger weapon arrives
         //    with the level that unlocks it, not smuggled in on an early card;
+        //  - rate of fire: the donor's attack cooldown within 0.5x - 2x of the chassis' own, so a gatling
+        //    keeps firing like a gatling and a beam does not land on a missile mech;
         //  - price class: no gun from a unit more than 4x the price of the chassis;
         //  - a real combat unit: not a spawner, refinery, harvester, engineer or factory sidearm.
         static bool WeaponFits(string baseId, string donorId)
@@ -809,6 +811,17 @@ namespace RCM_Randomizer
                 float donorRange = EntityBalancingStore.WeaponRange(donorId, returnOriginalValueFromBalancingFile: true);
                 if (baseRange < 0.01f) { if (donorRange > 8f) return false; }
                 else if (donorRange < baseRange * 0.5f || donorRange > baseRange * 2f) return false;
+
+                // RATE OF FIRE class: a chassis is as much its rhythm as its range. The swap now hands the
+                // donor's cooldown to the host (so a salvo gun does not fire at gatling speed), which means
+                // a mismatched donor rewrites what the unit IS: a 0.25s gatling firing a marine's 2s rifle,
+                // an 8s missile mech firing a 0.2s beam. Within 0.5x - 2x the two weapons are the same kind
+                // of gun. This also keeps beams and other fast-ticking weapons off slow chassis, where their
+                // damage model (damage per tick, straight out of OnHasShot) does not survive the rescale.
+                float baseCooldown = EntityBalancingStore.Attack1Cooldown(baseId, returnOriginalValueFromBalancingFile: true);
+                float donorCooldown = EntityBalancingStore.Attack1Cooldown(donorId, returnOriginalValueFromBalancingFile: true);
+                if (baseCooldown > 0.01f && donorCooldown > 0.01f
+                    && (donorCooldown < baseCooldown * 0.5f || donorCooldown > baseCooldown * 2f)) return false;
 
                 if (UnlockLevelOf(donorId) > UnlockLevelOf(baseId)) return false;
 

@@ -62,6 +62,15 @@ namespace RCM_Randomizer
             static void Postfix(EntityController __instance) => Mark(__instance, s => { s.LastShot = Time.time; s.EverShot = true; });
         }
 
+        // Damage, not "a projectile arrived": a beam (PCXDeconstructorTank and every other weapon that
+        // damages from OnHasShot through a line renderer) never calls OnReachedTarget, so watching only
+        // that reported a working beam as "fires but nothing registers a hit".
+        [HarmonyPatch(typeof(EntityController), "TakeDamage")]
+        static class Patch_Damage_Dealt
+        {
+            static void Postfix(EntityController originator) => Mark(originator, s => { s.LastDamage = Time.time; s.EverDamaged = true; });
+        }
+
         [HarmonyPatch(typeof(EntityController), "OnReachedTarget")]
         static class Patch_Damage
         {

@@ -4,6 +4,13 @@
 
 Playtest fixes. Every cause below was read off the game's own prefab data with the new `Diagnostics.DumpPrefabFacts` dump rather than inferred from the symptom.
 
+
+### Sixth playtest round
+
+- **A donor's rate of fire has to match the chassis.** The swap hands the donor's cooldown to the host, so a mismatched donor rewrote what the unit is: a 0.25s T3 Gatling firing a marine's 2s rifle, an 8s Missile Mech and a 0.8s Support Tank firing a Deconstructor's 0.2s beam (which is also why that beam felt like a high-end weapon - a tick-damage beam does not survive being rescaled onto a slow chassis). A donor now needs a cooldown within 0.5x-2x of the chassis' own, alongside the existing range, level and price classes. Every pair on the test seed is inside that band, and the mixed share did not drop (92 of 196).
+- **The watchdog no longer misreads beams.** It watched for a projectile arriving, which a beam never does - it damages straight out of its fire event - so a working Deconstructor beam was reported as "fires but nothing registers a hit". It now watches damage dealt.
+- **Card and battlefield seating are compared.** Both run the same seating code, so a visible difference is a bug: the first time the two disagree by more than 10 percent for a pair, the mixer logs `card and battlefield seat the turret differently for X <- Y: card x1.0, unit x0.7`.
+- A weapon swap replaces the weapon, it does not add one: a turret ends up with exactly one gun (plus its own skill, if it has one). Second, independently firing guns are the roof turrets, and those are tanks and vehicles only.
 ### Fifth playtest round
 
 - **Vanilla units stay in the game.** Only a share of the roster is mixed on a given seed (`TurretShuffle.MixedShare`, default 0.5); the rest keeps its own turret, and which units those are changes with the seed. A unit the map left alone really is stock now: the selector used to answer "no opinion" for it, which handed it to the mixer's own per-spawn random donor.
