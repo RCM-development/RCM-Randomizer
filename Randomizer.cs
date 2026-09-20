@@ -53,6 +53,8 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _enemyRolls;
         ConfigEntry<int> _capturedTechCount;
         ConfigEntry<bool> _progression;
+        ConfigEntry<bool> _unlockByPower;
+        ConfigEntry<float> _level0Share;
         ConfigEntry<bool> _runPacing;
         ConfigEntry<bool> _veterancyChevrons;
         ConfigEntry<float> _veterancyRankCost;
@@ -147,7 +149,7 @@ namespace RCM_Randomizer
             _dumpPrefabFacts = Config.Bind("Diagnostics", "DumpPrefabFacts", false,
                 "Write BepInEx/RandomizerProbe.txt once per session: for every rolled unit the range its selection circle draws, its target identifiers and events, plus specialist hacks and the health bar layout. Read straight off the prefabs; for bug reports and development.");
             _roofTurrets = Config.Bind("TurretShuffle", "RoofTurrets", true,
-                "Tanks and vehicles can roll a roof turret: a second weapon that aims and fires on its own, built the way the game builds its own two-gun tanks (a child turret entity). Priced into the card's cost, shown on the card model, player units only, unlocked from progression tier 1.");
+                "Tanks and vehicles can roll a roof turret: a second weapon that aims and fires on its own, built the way the game builds its own two-gun tanks (a child turret entity). Priced into the card's cost, shown on the card model, player units only, Priced well above a skill, never on the free run-start units, and unlocked from progression tier 2.");
             // Off: a specialist's skill is what its card and its whole hack tree are written around
             // (Support Tank: Robust + six "Skill targets ..." hacks). Playtest verdict: well balanced
             // as it is, leave it. Only the economy harvesters swap their skill at run start.
@@ -197,6 +199,10 @@ namespace RCM_Randomizer
             _veterancyBonus = Config.Bind("Progression", "VeterancyBonusPerTier", 0.15f,
                 new ConfigDescription("Damage and max health a unit gains per tier (0.15 = 15 percent at bronze, 30 at silver, 45 at gold). Both sides earn it. 0 = ranks are cosmetic unless a card pays them.", new AcceptableValueRange<float>(0f, 0.5f)));
             Veterancy.Configure(_veterancyBonus.Value);
+            _unlockByPower = Config.Bind("Progression", "UnlockByPower", true,
+                "Rebuild which cards the game offers at which experience level, from what each card actually puts on the field (sustained damage and splash, reach, price). Vanilla opens 65 cards at level 0, among them the Ultra Turret, the Missile Mech and the Artillery Truck; here the weakest quarter starts open and everything else is spread across the track in order of power, in an order that differs per profile. A card is never offered EARLIER than the game intended.");
+            _level0Share = Config.Bind("Progression", "OpenAtLevel0", 0.3f,
+                new ConfigDescription("Share of the gateable blueprint cards available from level 0 - the pool a fresh profile rolls from, on top of the game's own starting deck, which is never gated. The rest unlock across the track.", new AcceptableValueRange<float>(0.05f, 1f)));
             _runPacing = Config.Bind("Progression", "PaceBlueprintsWithinRun", true,
                 "Within a run, blueprint rewards start at the cheap end of each rarity band and the ceiling rises as the run progresses, so the expensive units arrive later instead of on level one.");
             _runPacingStart = Config.Bind("Progression", "PaceStartingFraction", 0.45f,
@@ -284,7 +290,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_unlockByPower.Value}|{_level0Share.Value:F2}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -325,11 +331,13 @@ namespace RCM_Randomizer
                 // enough to be met in ordinary play (captured tech, at tier 2, comes later)
                 RoofTurrets.Enabled = _roofTurrets.Value;
                 RollEngine.HasSecondWeapon = PrefabHasChildTurret;
-                RollEngine.RoofTurretOptions = _roofTurrets.Value && Progression.IsUnlocked(1)
+                RollEngine.RoofTurretOptions = _roofTurrets.Value && Progression.IsUnlocked(2)
                     ? RoofTurrets.AvailableIds() : new List<string>();
                 ShopTweaks.Enabled = _shopTweaks.Value; ShopTweaks.RarityBumps = _shopRarityBumps.Value; ShopTweaks.Seed = seed; ShopTweaks.Luck = luck;
                 AuraTweaks.Enabled = _auraTweaks.Value; AuraTweaks.Seed = seed;
                 if (_promoteDropRarities.Value) PromoteDropRarities();
+                UnlockLevels.Enabled = _unlockByPower.Value; UnlockLevels.Level0Share = _level0Share.Value;
+                UnlockLevels.Apply(seed); // before the pools are queried and before Titans read the track
                 if (_generatedDropCount.Value > 0) GeneratedDrops.Apply(seed, luck, _generatedDropCount.Value); // before ApplyRolls so they join the roll universe
                 WeaponWatchdog.Enabled = _watchWeapons.Value;
                 WeaponWatchdog.DonorOf = id => _donorMap != null && _donorMap.TryGetValue(id, out string d) ? d : null;
@@ -561,6 +569,7 @@ namespace RCM_Randomizer
             GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
             GeneratedHacks.Deactivate();
             GeneratedDrops.Deactivate();
+            UnlockLevels.Restore();
             Titans.Deactivate();
             Titans.Enabled = false;
             ShopTweaks.Enabled = false;

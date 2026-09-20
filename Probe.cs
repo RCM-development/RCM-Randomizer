@@ -34,6 +34,25 @@ namespace RCM_Randomizer
                 }
 
                 sb.AppendLine();
+                // What the vanilla game gates and how hard: every blueprint card with the level it
+                // unlocks at and the punch of what it builds. This is the evidence behind any change to
+                // unlock levels - dps = damage x fire points / cooldown, of the PRODUCT for a factory card.
+                sb.AppendLine("# blueprints: card | level | cost | dps | range | product | roles");
+                try
+                {
+                    var rows = EntityBalancingStore.EntityBalancingParametersList
+                        .Where(r => r.isAllowedAsBlueprint && !r.inactive && !Titans.IsGenerated(r.entityId))
+                        .OrderBy(r => r.neededExperienceLevel).ThenBy(r => r.entityId, StringComparer.Ordinal);
+                    foreach (var row in rows)
+                    {
+                        string product = row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : row.entityId;
+                        var p = EntityBalancingStore.EntityBalancingParametersList.FirstOrDefault(x => x.entityId == product);
+                        float dps = p.attackCooldown > 0.01f ? p.damage1 * Math.Max(1, p.firePointCount) / p.attackCooldown : 0f;
+                        sb.AppendLine($"    {row.entityId} | L{row.neededExperienceLevel} | c={row.cost} | dps={F(dps)} | r={F(p.weaponRange)} | {product} | {p.roles}");
+                    }
+                }
+                catch (Exception e) { sb.AppendLine("blueprints FAILED " + e.Message); }
+                sb.AppendLine();
                 sb.AppendLine("# weapon audit: does each weapon survive a transplant? (copied events only)");
                 try
                 {

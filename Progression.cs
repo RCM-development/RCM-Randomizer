@@ -98,6 +98,8 @@ namespace RCM_Randomizer
         // tier 1 content demand level 125000, so the reward pools - which filter on the player's
         // real level - never offered a single generated card above tier 0.
         static int _trackTop;
+        public static int TrackTop() => MaxExperienceLevel();
+
         static int MaxExperienceLevel()
         {
             if (_trackTop > 0) return _trackTop;

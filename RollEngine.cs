@@ -74,7 +74,9 @@ namespace RCM_Randomizer
         // the list with the child-turret entities this build of the game has, and leaves it empty
         // when the feature is off or the progression ladder has not reached it yet.
         public static IReadOnlyList<string> RoofTurretOptions = new List<string>();
-        public const float RoofTurretPower = 0.22f; // priced like a strong skill
+        // A second, independently firing gun is close to a second unit: priced above any skill, and
+        // paid for by the card's cost and build time like everything else.
+        public const float RoofTurretPower = 0.34f;
         // Units that already carry a second gun as an embedded child turret (supplied by the
         // plugin, which can read prefabs).
         public static Func<string, bool> HasSecondWeapon;
@@ -455,6 +457,10 @@ namespace RCM_Randomizer
                     || EntityBalancingStore.HasRole(entityId, UnitRole.Harvester)
                     || EntityBalancingStore.HasRole(entityId, UnitRole.Engineer)) return false;
                 if (EntityBalancingStore.ProductEntityId(entityId) != null) return false;
+                // Run-start units are FREE: the Support Tank arrives without being bought, so a second
+                // gun on it is power nobody paid for, and early on it outclassed everything on the field.
+                // Its price model only works for a card you buy.
+                if (StarterIds != null && StarterIds.Contains(entityId)) return false;
                 if (RoofTurretOptions.Contains(entityId)) return false;
                 return HasSecondWeapon == null || !HasSecondWeapon(entityId);
             }
