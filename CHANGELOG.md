@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.9.1 — unreleased
+## 0.9.1 — 2026-09-21
 
 Playtest fixes. Every cause below was read off the game's own prefab data with the new `Diagnostics.DumpPrefabFacts` dump rather than inferred from the symptom.
+
+The rounds below are in reverse order, newest first, and a later round can supersede an earlier one - veterancy went from five ranks to three tiers during this version, so the third round's numbers are the ones that ship, not the ones under "Veterancy" at the bottom.
 
 
 
