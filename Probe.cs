@@ -205,6 +205,16 @@ namespace RCM_Randomizer
             }
             catch (Exception e) { sb.AppendLine("PROBE FAILED: " + e); }
 
+            // the enemy's rule set is long enough to bury everything else: its own file, written first
+            // so the main probe's timestamp still marks the end of the whole dump
+            try
+            {
+                var ai = new StringBuilder();
+                ProbeAi.Dump(ai);
+                File.WriteAllText(Path.Combine(BepInEx.Paths.BepInExRootPath, "RandomizerAiProbe.txt"), ai.ToString());
+            }
+            catch (Exception e) { sb.AppendLine("AI PROBE FAILED: " + e); }
+
             string path = Path.Combine(BepInEx.Paths.BepInExRootPath, "RandomizerProbe.txt");
             File.WriteAllText(path, sb.ToString());
             TestMod.RCMManager.Log("Randomizer: prefab facts written to " + path);
