@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.2 — unreleased
+## 0.9.2 — 2026-09-21
 
 Both entries come from the first battle log of 0.9.1, and both are about the diagnostics telling the truth rather than about a new feature.
 
