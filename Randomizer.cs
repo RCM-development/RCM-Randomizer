@@ -29,7 +29,7 @@ namespace RCM_Randomizer
         const string IDENTIFIER = "RCM.plugins.randomizer";
         const string SeedFileName = "randomizerSeed.txt";
         // keep in step with <Version> in RCM_Randomizer.csproj (BepInPlugin needs a constant)
-        public const string Version = "0.9.2";
+        public const string Version = "0.9.3";
 
         public enum Mode { Off, PerSave, PerRun }
 
@@ -1000,6 +1000,7 @@ namespace RCM_Randomizer
             {
                 float costMult;
                 float rangeRatio = 1f;
+                float rangeGain = 0f;   // a melee host has no range to multiply: it is given one
                 float splashDelta = 0f;
                 float cooldownRatio = 1f, damageRatio = 1f;
                 try
@@ -1028,6 +1029,23 @@ namespace RCM_Randomizer
                     {
                         rangeRatio = donorRange / baseRange;
                         delta += 0.45f * Mathf.Log(rangeRatio);
+                    }
+                    // A BRAWLER that takes a gun stops being a brawler, and a multiply cannot say so:
+                    // a melee unit's weapon range is 0, and 0 x anything is still 0. The mixer flips the
+                    // host's `melee` flag to the donor's, so such a unit was left non-melee with NO
+                    // range - and the game reads weapon range for both halves of attacking:
+                    // EnemiesWithinRange uses it to find a target at all, and the ranged branch of
+                    // IsTargetInRange needs the target inside it. At 0 the unit never even acquires a
+                    // target, so it walks around looking busy and never attacks - and the weapon
+                    // watchdog stayed silent, because it only watches units that HAVE a target.
+                    // Reported for the Mantis Mech; the same seed did it to the Buckler Mech, the Robo
+                    // Blade Bot, the Claw Bot and the Crystal Harvester. The reach is therefore SET to
+                    // the donor's, and paid for against a brawler's own reach of about a cell rather
+                    // than against a ratio with zero underneath it.
+                    else if (baseRange <= 0.01f && donorRange > 0.01f)
+                    {
+                        rangeGain = donorRange;
+                        delta += 0.45f * Mathf.Log(Mathf.Max(1.5f, donorRange));
                     }
 
                     // so does its SPLASH: impact identifiers select by the firing unit's own EffectRadius1,
@@ -1064,6 +1082,8 @@ namespace RCM_Randomizer
                     changes.Add(AddChange(EntityBalancingStore.ChangeableValue.EffectRadius1, splashDelta, pair.Key));
                 if (Mathf.Abs(rangeRatio - 1f) > 0.02f)
                     changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.WeaponRange, rangeRatio, pair.Key));
+                if (rangeGain > 0.01f)
+                    changes.Add(AddChange(EntityBalancingStore.ChangeableValue.WeaponRange, rangeGain, pair.Key));
                 if (Mathf.Abs(costMult - 1f) < 0.02f) continue;
 
                 changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Cost, costMult, pair.Key));

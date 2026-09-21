@@ -123,6 +123,23 @@ namespace RCM_Randomizer
             var attack = entity.GetAttackForDebugging();
             var target = attack != null ? attack.CurrentTarget : null;
             var state = StateOf(entity);
+
+            // The blind spot this watchdog had: it only ever looked at units that HAVE a target, so a
+            // unit that can never acquire one was invisible to it. That is not hypothetical - a melee
+            // host given a ranged weapon kept its melee weapon range of 0 while losing the melee flag,
+            // and the game looks for enemies inside the weapon range, so the Mantis Mech never picked a
+            // target and never fired while the log stayed clean. Reported once per unit type, and it
+            // does not need a target to fire, which is the whole point.
+            if (!entity.melee && entity.WeaponRange < 0.5f)
+            {
+                Reported.Add(entity.entityId);
+                string cannot = DonorOf != null ? DonorOf(entity.entityId) : null;
+                TestMod.RCMManager.Log($"Randomizer: WEAPON STUCK - {entity.entityId}"
+                    + (string.IsNullOrEmpty(cannot) ? " (stock weapon)" : " <- " + cannot)
+                    + $" can never attack: it is not melee and its weapon range is {entity.WeaponRange:0.##},"
+                    + " so it finds no enemies to target at all");
+                return;
+            }
             if (target == null || !target.StillExists || !attack.IsCurrentTargetInRange)
             {
                 state.TargetSince = 0f;

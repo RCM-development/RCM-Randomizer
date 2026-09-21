@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.3 — unreleased
+
+Two reports from the same battle, both traced to their cause in the game's own code rather than guessed at.
+
+- **A brawler handed a gun could never attack again** (reported for the Mantis Mech). A melee unit's weapon range is 0, and the range a swapped weapon brings was applied as a MULTIPLY - 0 x anything is still 0. Meanwhile the mixer sets the host's `melee` flag to the donor's, so the unit came out non-melee with no range, and the game reads weapon range for both halves of attacking: `EntityAttack.EnemiesWithinRange` uses it to find a target at all, and the ranged branch of `IsTargetInRange` needs the target inside it. At 0 the unit never even acquired a target - it walked around looking busy and never fired. A melee host is now GIVEN the donor's reach and pays for it (the Mantis: reach 5 from the Incinerator, cost x1.87). On the reported seed it also had the Buckler Mech (3), Robo Blade Bot (4.5), Claw Bot (4.5) and Crystal Harvester (4).
+- **The weapon watchdog was blind to exactly this.** It only ever examined units that HAVE a target, so a unit that can never acquire one produced no line at all while the log stayed clean. It now reports a player unit that is non-melee with no weapon range, without waiting for a target it will never get.
+- **A transplanted weapon could float above the unit** (reported for a support unit; the Robo Medic's own pivot measures 1.0 across - an emitter, not a turret - so the gun was seated at ITS height). The contact clamp compared against the top of the WHOLE unit, which only catches a gun floating above everything: a gun parked beside a mast is above the hull it should rest on while still below the mast's tip, and the mast is often part of the old turret and has its renderers switched off right after, leaving the gun hanging over a gap. The clamp now looks for the support UNDER the turret - the highest body part whose footprint overlaps its own - and falls back to the old rule only when nothing sits beneath it.
+- The probe's pair lines now print the EFFECTIVE weapon range, not the balancing file's. Reading the original there is what hid the bug above.
+
 ## 0.9.2 — 2026-09-21
 
 Both entries come from the first battle log of 0.9.1, and both are about the diagnostics telling the truth rather than about a new feature.

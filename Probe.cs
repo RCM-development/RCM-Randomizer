@@ -108,7 +108,10 @@ namespace RCM_Randomizer
                         float bc = EntityBalancingStore.Attack1Cooldown(id, true), dc = EntityBalancingStore.Attack1Cooldown(donor, true);
                         sb.AppendLine($"    {id} r={F(EntityBalancingStore.WeaponRange(id, true))} L{EntityBalancingStore.NeededExperienceLevel(id)} c={EntityBalancingStore.Cost(id, true)}"
                             + $" <- {donor} r={F(EntityBalancingStore.WeaponRange(donor, true))} L{EntityBalancingStore.NeededExperienceLevel(donor)} c={EntityBalancingStore.Cost(donor, true)}"
-                            + $" | cd x{F(bc > 0.01f ? dc / bc : 1f)} now: cd={F(EntityBalancingStore.Attack1Cooldown(id))} dmg={F(EntityBalancingStore.Damage1(id))} (was {F(EntityBalancingStore.Damage1(id, true))})");
+                            + $" | cd x{F(bc > 0.01f ? dc / bc : 1f)} now: cd={F(EntityBalancingStore.Attack1Cooldown(id))} dmg={F(EntityBalancingStore.Damage1(id))} (was {F(EntityBalancingStore.Damage1(id, true))})"
+                            // the EFFECTIVE reach, not the balancing file's: a brawler handed a gun is
+                            // given one, and reading the original here hid whether that landed
+                            + $" range={F(EntityBalancingStore.WeaponRange(id))}");
                     }
                     sb.AppendLine($"    {paired} of {total} listed entities carry a donor turret");
                 }

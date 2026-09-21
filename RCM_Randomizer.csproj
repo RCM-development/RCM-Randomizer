@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.9.2</Version>
+    <Version>0.9.3</Version>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>portable</DebugType>
     <NoWarn>$(NoWarn);CS0618;CS0612;CS0649;CS0169;CS0414;CS1701;CS1702</NoWarn>
