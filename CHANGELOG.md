@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2 — unreleased
+
+Both entries come from the first battle log of 0.9.1, and both are about the diagnostics telling the truth rather than about a new feature.
+
+- **The card/battlefield seating warning compared two numbers that are not in the same units.** A donor is instantiated at its own prefab scale and then measured in the local space of the host ROOT - so the scale factor depends on how big that root is, and the two paths do not share one: a card's display model is the prefab scaled to fit a card, while a spawned unit's root is whatever it was instantiated at. That difference divides into every pair identically, which is why two unrelated pairs (RoboCrystalHarvester + Incinerator, BountyTank + JeepWithMachineGun) both came out exactly x1.186 apart in the same battle. Both paths now bring the donor into the host PREFAB's units first, and the warning compares what is actually visible - the seated turret's size AND its centre, in the unit's own frame, after scaling and alignment - so it fires for a real mismatch and stays quiet for pairs that seat alike. The final size a turret is seated at does not change.
+- **"Fires but nothing registers a hit" can now name the reason.** The stock Robo Poker was flagged twice in that battle while also earning three ranks, so it kills and the line could not say what it was missing. The Poker does not damage its target directly - it damages whatever is inside a named box (`DealDamage(Damage1 via Identified:RoboPokeScalableAttackWR)`), and every such action resolves its targets through one method. That lookup is now watched, so the line says `the hit box it damages through ('X', empty 12x) finds nothing to hit` when the box comes back empty, which separates a box that finds nothing from a chain that never reaches its damage action. Not yet a fix for the Poker: it is the measurement that decides which of the two it is.
+
 ## 0.9.1 — 2026-09-21
 
 Playtest fixes. Every cause below was read off the game's own prefab data with the new `Diagnostics.DumpPrefabFacts` dump rather than inferred from the symptom.

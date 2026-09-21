@@ -32,6 +32,9 @@ namespace RCM_Randomizer
         {
             public float TargetSince, LastArmed, LastShot, LastDamage;
             public bool EverArmed, EverShot, EverDamaged;
+            public float LastEmptyBox;      // a named hit box was asked for targets and returned none
+            public string EmptyBoxName;
+            public int EmptyBoxCount;
         }
 
         static readonly Dictionary<int, State> States = new Dictionary<int, State>();
@@ -77,6 +80,28 @@ namespace RCM_Randomizer
             static void Postfix(EntityController __instance) => Mark(__instance, s => { s.LastDamage = Time.time; s.EverDamaged = true; });
         }
 
+        // "Fires but nothing registers a hit" was true of the stock Robo Poker in a real battle, and
+        // the line could not say why - which matters, because the Poker does not damage its target
+        // directly: it damages whatever is inside a named box (`DealDamage(Damage1 via
+        // Identified:RoboPokeScalableAttackWR)`), and every such action resolves its targets through
+        // this one method. A box that comes back empty is a different fault from a chain that never
+        // reaches the damage action, and only one of them is the mod's business, so the two are now
+        // told apart instead of guessed at.
+        [HarmonyPatch(typeof(EntityIdentifier), "Entities", new Type[] { typeof(EntityController), typeof(Vector3), typeof(EntityController) })]
+        static class Patch_Identifier
+        {
+            static void Postfix(EntityIdentifier __instance, EntityController self, List<EntityController> __result)
+            {
+                if (__result != null && __result.Count > 0) return;
+                Mark(self, s =>
+                {
+                    s.LastEmptyBox = Time.time;
+                    s.EmptyBoxName = __instance != null ? __instance.name : "?";
+                    s.EmptyBoxCount++;
+                });
+            }
+        }
+
         // Driven from the veterancy refresh tick would be wrong (that only runs on rank changes), so
         // the check rides EntityController's own Update through a cheap patch: it returns
         // immediately unless the unit is a player unit with a target in range.
@@ -117,7 +142,9 @@ namespace RCM_Randomizer
             else if (!state.EverShot || Time.time - state.LastShot > grace)
                 verdict = "is told to fire but no projectile leaves the barrel (fire points, or the weapon's own target identifier finds nothing at this range)";
             else if (!state.EverDamaged || Time.time - state.LastDamage > grace)
-                verdict = "fires but nothing registers a hit";
+                verdict = (state.EmptyBoxName != null && Time.time - state.LastEmptyBox <= grace)
+                    ? $"fires, but the hit box it damages through ('{state.EmptyBoxName}', empty {state.EmptyBoxCount}x) finds nothing to hit"
+                    : "fires but nothing registers a hit";
             else { state.TargetSince = Time.time; return; }
 
             Reported.Add(entity.entityId);
