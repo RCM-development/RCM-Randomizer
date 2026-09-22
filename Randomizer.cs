@@ -87,6 +87,8 @@ namespace RCM_Randomizer
         ConfigEntry<int> _titanUnlockTier;
         ConfigEntry<bool> _enemyTitans;
         ConfigEntry<float> _titanEarliest;
+        ConfigEntry<bool> _enemyAi, _enemyAiEngagedOnly, _enemyAiValueTargets, _enemyAiPatrolsDefend, _enemyAiDormant;
+        ConfigEntry<float> _enemyAiWaveTempo, _enemyAiDefendShare;
         ConfigEntry<string> _scatterWeapons;
         ConfigEntry<float> _scatterRadius;
         ConfigEntry<bool> _auraTweaks;
@@ -185,6 +187,16 @@ namespace RCM_Randomizer
                 new ConfigDescription("How much of a run must lie behind before a Titan can be offered as a blueprint (0.6 = the last 40 percent). Independent of UnlockTier, which decides whether a profile has them at all.", new AcceptableValueRange<float>(0f, 0.95f)));
             _enemyTitans = Config.Bind("Titans", "EnemyTitans", true,
                 "In the last third of a run, about 4 percent of the enemy's heavier units (cost 200+) spawn as Titans: 1.5x the size, 4x the health, double damage. Seeded by the run.");
+            _enemyAi = Config.Bind("EnemyAI", "Enabled", true,
+                "Sharper enemy brain. Measured in the AI probe: all 122 enemy rule sets share one template and none of it reads the difficulty, so Engaged had the same brain as Meditative. On: attack waves no longer wait for the previous wave to die, the wave clock runs faster, targets are chosen by value (economy first, factories next, least-guarded preferred) instead of at random, patrolling groups answer defence calls, and three finished rules the game ships switched off (react to a spotted unit, avenge scouts, reveal a building when scouting finds nothing) are enabled.");
+            _enemyAiEngagedOnly = Config.Bind("EnemyAI", "EngagedOnly", true, "Apply only on Engaged difficulty. Off: all difficulties.");
+            _enemyAiWaveTempo = Config.Bind("EnemyAI", "WaveTempo", 0.75f,
+                new ConfigDescription("Multiplier on the attack-wave and harassment clocks (cooldown and first-wave delay). 0.75 = a quarter faster. 1 = vanilla timing.", new AcceptableValueRange<float>(0.3f, 1.5f)));
+            _enemyAiDefendShare = Config.Bind("EnemyAI", "DefendShare", 0.3f,
+                new ConfigDescription("Least share of eligible units that answer 'player in sight of base' (vanilla 0.1).", new AcceptableValueRange<float>(0.1f, 1f)));
+            _enemyAiValueTargets = Config.Bind("EnemyAI", "ValueTargets", true, "Waves pick targets by value instead of a random known building.");
+            _enemyAiPatrolsDefend = Config.Bind("EnemyAI", "PatrolsDefend", true, "Patrolling groups answer defence calls.");
+            _enemyAiDormant = Config.Bind("EnemyAI", "DormantRules", true, "Enable the three switched-off rules.");
             _engineerVeterancy = Config.Bind("Engineers", "Veterancy", true,
                 "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (bronze Common, silver Rare, gold UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
             _engineerRankCostFactor = Config.Bind("Engineers", "CareerRankCostFactor", 4f,
@@ -369,6 +381,8 @@ namespace RCM_Randomizer
                 WeaponWatchdog.DonorOf = id => _donorMap != null && _donorMap.TryGetValue(id, out string d) ? d : null;
                 GrenadeScatter.Configure(_scatterWeapons.Value, _scatterRadius.Value);
                 Titans.Enabled = _titans.Value; Titans.UnlockTier = _titanUnlockTier.Value; Titans.EnemyTitans = _enemyTitans.Value; Titans.EarliestRunProgress = _titanEarliest.Value;
+                EnemyAI.Enabled = _enemyAi.Value; EnemyAI.EngagedOnly = _enemyAiEngagedOnly.Value; EnemyAI.WaveTempo = _enemyAiWaveTempo.Value; EnemyAI.DefendShare = _enemyAiDefendShare.Value;
+                EnemyAI.OverlappingWaves = true; EnemyAI.ValueTargets = _enemyAiValueTargets.Value; EnemyAI.PatrolsDefend = _enemyAiPatrolsDefend.Value; EnemyAI.DormantRules = _enemyAiDormant.Value;
                 Titans.Apply(seed, _titanUnitCount.Value, _titanTurretCount.Value);
                 if (_capturedTechCount.Value > 0) ApplyCapturedTech(seed);
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
@@ -600,6 +614,7 @@ namespace RCM_Randomizer
             UnlockLevels.Restore();
             Titans.Deactivate();
             Titans.Enabled = false;
+            EnemyAI.Enabled = false;
             ShopTweaks.Enabled = false;
             RoofTurrets.Enabled = false;
             EngineerVeterancy.Enabled = false;

@@ -42,7 +42,10 @@ namespace RCM_Randomizer
                         }
                     }
                     foreach (var manager in prefab.GetComponentsInChildren<AiBehaviourManager>(true))
+                    {
+                        sb.AppendLine("    EnemyAI would touch: " + EnemyAI.Preview(manager));
                         DumpManager(sb, manager);
+                    }
                     var others = prefab.GetComponentsInChildren<MonoBehaviour>(true)
                         .Where(c => c != null && !(c is AiBehaviour) && !(c is AiBehaviourManager)).Select(c => c.GetType().Name).Distinct().ToList();
                     if (others.Count > 0) sb.AppendLine("    other components: " + string.Join(", ", others));
