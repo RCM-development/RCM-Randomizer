@@ -46,7 +46,7 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 
 ## Status
 
-Version 0.9.2 (0.9.0 was the first release); see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. The two 0.9.2 entries are diagnostics corrections from the first 0.9.1 battle log and have not themselves been through a battle yet. Verified in play for stat rolls, turret combinations, names and portraits, starter skills and the setup-screen/run consistency. Generated upgrades, hacks, drops, shop tweaks and veterancy have run without errors but have had little deliberate testing. Analysis and roadmap: `docs/balance-analysis.md`.
+Version 0.9.3 (0.9.0 was the first release); see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills and the setup-screen/run consistency. The 0.9.3 additions - the sharper Engaged enemy, the economy buildings and the brawler re-roling - are verified at the menu and in the data, not yet through a full battle. Analysis and roadmap: `docs/balance-analysis.md`.
 
 ## Install
 

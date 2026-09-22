@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.3 — unreleased
+## 0.9.3 — 2026-09-22
 
 Two reports from the same battle, both traced to their cause in the game's own code rather than guessed at - and the enemy AI, read off its own rule data.
 
