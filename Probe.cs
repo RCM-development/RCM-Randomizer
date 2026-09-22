@@ -49,7 +49,7 @@ namespace RCM_Randomizer
                         var p = EntityBalancingStore.EntityBalancingParametersList.FirstOrDefault(x => x.entityId == product);
                         float dps = p.attackCooldown > 0.01f ? p.damage1 * Math.Max(1, p.firePointCount) / p.attackCooldown : 0f;
                         string shown; try { shown = Loca.BlueprintName(row.entityId); } catch { shown = row.entityId; }
-                        sb.AppendLine($"    {row.entityId} | L{row.neededExperienceLevel} | c={row.cost} | dps={F(dps)} | r={F(p.weaponRange)} | {p.roles} | {shown}");
+                        sb.AppendLine($"    {row.entityId} | L{row.neededExperienceLevel} | c={row.cost} | dps={F(dps)} | r={F(p.weaponRange)} | {p.roles} | tags={row.offeredSystemTags} | {shown}");
                     }
                 }
                 catch (Exception e) { sb.AppendLine("blueprints FAILED " + e.Message); }

@@ -149,24 +149,58 @@ namespace RCM_Randomizer
             public IAiTarget Fallback;
             const float GuardRadius = 80f; // world units: 8 cells
 
+            // Counting guards is buildings x units, and several rules ask for a target every couple of
+            // seconds - at a late-game 60 buildings and 300 units that is 18,000 distance checks plus a
+            // freshly allocated list of every player entity, on each call. How well a building is
+            // guarded does not change meaningfully inside a second, so the counts are computed at most
+            // once a second and shared by every caller, the buffers are reused instead of allocated,
+            // and distances are compared squared. Only the cheap part - worth and noise - runs per call.
+            static readonly Dictionary<EntityController, int> Guarded = new Dictionary<EntityController, int>();
+            static readonly List<EntityController> Buildings = new List<EntityController>();
+            static readonly List<Vector3> GuardPositions = new List<Vector3>();
+            static float _stamp = -99f;
+
+            static void RefreshGuards()
+            {
+                if (Time.time - _stamp < 1f) return;
+                _stamp = Time.time;
+                Guarded.Clear();
+                Buildings.Clear();
+                GuardPositions.Clear();
+                foreach (var building in ExistingControllers.Instance.PlayerBuildingsKnownToAi())
+                    if (building != null && building.StillExists) Buildings.Add(building);
+                if (Buildings.Count == 0) return;
+                foreach (var entity in ExistingControllers.Instance.PlayerEntities())
+                    if (entity != null && entity.StillExists && entity.CanAttack) GuardPositions.Add(entity.Position);
+                float limit = GuardRadius * GuardRadius;
+                foreach (var building in Buildings)
+                {
+                    var at = building.Position;
+                    int guarding = 0;
+                    foreach (var position in GuardPositions)
+                    {
+                        float dx = position.x - at.x, dy = position.y - at.y, dz = position.z - at.z;
+                        if (dx * dx + dy * dy + dz * dz <= limit) guarding++;
+                    }
+                    Guarded[building] = guarding;
+                }
+            }
+
             public EntityController GetTarget()
             {
                 try
                 {
-                    var known = ExistingControllers.Instance.PlayerBuildingsKnownToAi();
-                    if (known != null && known.Count > 0)
+                    using (HookProfiler.Measure("aiValueTarget"))
                     {
-                        var guards = ExistingControllers.Instance.PlayerEntities().Where(e => e != null && e.StillExists && e.CanAttack).ToList();
+                        RefreshGuards();
                         EntityController best = null;
                         float bestScore = float.MinValue;
-                        foreach (var building in known)
+                        foreach (var building in Buildings)
                         {
                             if (building == null || !building.StillExists) continue;
                             float worth = building.HasRole(UnitRole.Refinery) || building.HasRole(UnitRole.Harvester) ? 3f
                                         : building.IsFactory ? 2f : 1f;
-                            int guarding = 0;
-                            foreach (var g in guards)
-                                if (Vector3.Distance(g.Position, building.Position) <= GuardRadius) guarding++;
+                            int guarding = Guarded.TryGetValue(building, out int count) ? count : 0;
                             float score = worth / (1f + 0.5f * guarding) * UnityEngine.Random.Range(0.7f, 1.3f);
                             if (score > bestScore) { bestScore = score; best = building; }
                         }

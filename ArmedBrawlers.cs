@@ -12,7 +12,7 @@ namespace RCM_Randomizer
     // the unit it builds, and the name says what the thing now is. Put back on restore.
     public static class ArmedBrawlers
     {
-        struct Saved { public int Index; public UnitRole Roles; }
+        struct Saved { public int Index; public UnitRole Roles; public SystemTags Tags; }
         static readonly List<Saved> Rows = new List<Saved>();
         static readonly Dictionary<string, Dictionary<string, string>> SavedNames = new Dictionary<string, Dictionary<string, string>>();
         public static readonly HashSet<string> Converted = new HashSet<string>();
@@ -27,36 +27,103 @@ namespace RCM_Randomizer
             {
                 string host = pair.Key, donor = pair.Value;
                 if (string.IsNullOrEmpty(donor)) continue;
-                float hostRange, donorRange;
-                try
-                {
-                    hostRange = EntityBalancingStore.WeaponRange(host, returnOriginalValueFromBalancingFile: true);
-                    donorRange = EntityBalancingStore.WeaponRange(donor, returnOriginalValueFromBalancingFile: true);
-                }
-                catch { continue; }
-                if (hostRange > 0.01f || donorRange <= 0.01f) continue;
-                if (!EntityBalancingStore.HasRole(host, UnitRole.Melee)) continue;
+                // The mixer decides melee by the DONOR PREFAB's own flag (`__instance.melee =
+                // frankenstien_controller.melee`), not by a range number, so that is what is asked
+                // here. Reading range instead missed the Robo Poker: a spear is melee with a weapon
+                // range of 1.5, so a rule of "host range must be 0" left it tagged melee while it
+                // stood there firing a transplanted gun.
+                if (!IsMeleeHost(host) || IsMeleePrefab(donor)) continue;
 
                 // the unit row, and every card that builds it
                 var ids = new List<string> { host };
                 ids.AddRange(list.Where(r => r.factoryForEntityId.hasValue && r.factoryForEntityId.value == host).Select(r => r.entityId));
+                bool changed = false;
                 foreach (string id in ids)
                 {
                     if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(id, out int index)) continue;
                     var row = list[index];
-                    if ((row.roles & UnitRole.Melee) == 0) continue;
-                    Rows.Add(new Saved { Index = index, Roles = row.roles });
+                    if ((row.roles & UnitRole.Melee) == 0 && (row.offeredSystemTags & SystemTags.Melee) == 0) continue;
+                    Rows.Add(new Saved { Index = index, Roles = row.roles, Tags = row.offeredSystemTags });
                     row.roles &= ~UnitRole.Melee;
                     if ((row.roles & UnitRole.FrontalAttacker) == 0) row.roles |= UnitRole.FrontalAttacker;
+                    // The card's "Melee" heading and the melee-only hacks and upgrades come from the
+                    // SYSTEM TAG, not the role (CardNew reads OfferedSystemTags; ChooseCard offers a
+                    // card only when the deck carries its needed tag). Dropping the role alone left
+                    // the gunner filed under melee everywhere a player can see.
+                    row.offeredSystemTags &= ~SystemTags.Melee;
                     list[index] = row;
                     EntityBalancingStore.ChangeableIntValueCache[id] = new Dictionary<EntityBalancingStore.ChangeableValue, int>();
                     EntityBalancingStore.ChangeableFloatValueCache[id] = new Dictionary<EntityBalancingStore.ChangeableValue, float>();
+                    changed = true;
                 }
+                if (!changed) continue;
                 Converted.Add(host);
                 names.Add(Rename(host, donor));
+                Redescribe(host, donor);
             }
             if (names.Count > 0)
                 TestMod.RCMManager.Log("Randomizer: armed brawlers (melee role dropped, gun's reach kept) -> " + string.Join(", ", names));
+        }
+
+        // The third place a unit is called melee, and the one on the card the player is looking at:
+        // its own description text. The Robo Poker's reads "Melee - Spear size scales with weapon
+        // range", and that sentence is simply untrue of a chassis that now fires a transplanted gun -
+        // it describes a strike that never happens. Replaced for converted units only, saved and put
+        // back on restore like the names.
+        static readonly Dictionary<string, Dictionary<string, string>> SavedDescriptions = new Dictionary<string, Dictionary<string, string>>();
+        static void Redescribe(string host, string donor)
+        {
+            try
+            {
+                if (Loca.BlueprintDescriptionDictionary.Count < 1) Loca.Init();
+                string hostKey = host.Trim().ToLowerInvariant(), donorKey = donor.Trim().ToLowerInvariant();
+                foreach (var language in Loca.BlueprintDescriptionDictionary)
+                {
+                    var dict = language.Value;
+                    if (!dict.TryGetValue(hostKey, out string current)) continue;
+                    // only rewrite a description that actually claims melee; the markup form is
+                    // "*Melee:Melee*", which is why the bare word is not enough to look for
+                    if (current.IndexOf("Melee", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    string donorName = donor;
+                    if (Loca.BlueprintNameDictionary.TryGetValue(language.Key, out var names2) && names2.TryGetValue(donorKey, out string n)) donorName = n;
+                    if (!SavedDescriptions.TryGetValue(language.Key, out var saved)) SavedDescriptions[language.Key] = saved = new Dictionary<string, string>();
+                    saved[hostKey] = current;
+                    dict[hostKey] = "Rearmed: fires the " + donorName + "'s weapon and no longer strikes in melee.";
+                }
+            }
+            catch { }
+        }
+
+        // A host counts as melee if EITHER marker says so: the role (what card changes and the mod's
+        // own rules key on) or the system tag (what the card shows and what melee-only hacks need).
+        static bool IsMeleeHost(string entityId)
+        {
+            try
+            {
+                return EntityBalancingStore.HasRole(entityId, UnitRole.Melee)
+                    || (EntityBalancingStore.OfferedSystemTags(entityId) & SystemTags.Melee) != 0;
+            }
+            catch { return false; }
+        }
+
+        // The prefab's own flag, cached: Resources.Load is cached by Unity but GetComponent is not,
+        // and this is asked once per pair on every apply cycle.
+        static readonly Dictionary<string, bool> MeleePrefab = new Dictionary<string, bool>();
+        static bool IsMeleePrefab(string entityId)
+        {
+            if (MeleePrefab.TryGetValue(entityId, out bool cached)) return cached;
+            bool melee = false;
+            try
+            {
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) as UnityEngine.GameObject;
+                var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                if (controller != null) melee = controller.melee;
+                // no prefab to ask: fall back to the reach on its row
+                else melee = EntityBalancingStore.WeaponRange(entityId, returnOriginalValueFromBalancingFile: true) <= 0.01f;
+            }
+            catch { }
+            MeleePrefab[entityId] = melee;
+            return melee;
         }
 
         // "Claw Bot + PCX Mobile Command" reads as a Claw Bot with something bolted on; what stands
@@ -94,6 +161,7 @@ namespace RCM_Randomizer
             {
                 var row = list[saved.Index];
                 row.roles = saved.Roles;
+                row.offeredSystemTags = saved.Tags;
                 list[saved.Index] = row;
             }
             Rows.Clear();
@@ -104,6 +172,12 @@ namespace RCM_Randomizer
                 foreach (var entry in language.Value) dict[entry.Key] = entry.Value;
             }
             SavedNames.Clear();
+            foreach (var language in SavedDescriptions)
+            {
+                if (!Loca.BlueprintDescriptionDictionary.TryGetValue(language.Key, out var dict)) continue;
+                foreach (var entry in language.Value) dict[entry.Key] = entry.Value;
+            }
+            SavedDescriptions.Clear();
         }
     }
 }

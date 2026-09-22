@@ -43,7 +43,15 @@ namespace RCM_Randomizer
         static State StateOf(EntityController entity)
         {
             int id = entity.GetInstanceID();
-            if (!States.TryGetValue(id, out var state)) States[id] = state = new State();
+            if (!States.TryGetValue(id, out var state))
+            {
+                // One entry per unit that ever lived, keyed by instance id, and a long battle spawns
+                // thousands - it grew without limit and the collector paid for it as a hitch. Every
+                // verdict looks at most three seconds back, so dropping the lot costs nothing but a
+                // few units re-establishing their clocks.
+                if (States.Count > 400) States.Clear();
+                States[id] = state = new State();
+            }
             return state;
         }
 
@@ -111,7 +119,12 @@ namespace RCM_Randomizer
         {
             static void Postfix(EntityController __instance)
             {
-                if (!Enabled) return;
+                // This runs for EVERY entity EVERY frame - several hundred calls per frame in a late
+                // battle - so the cheap rejections happen here, before the try block and before any
+                // call is made: a unit is examined four times a second, spread across frames by its
+                // instance id so they never all land together. A three-second verdict needs no more.
+                if (!Enabled || __instance == null) return;
+                if ((Time.frameCount + __instance.GetInstanceID()) % 15 != 0) return;
                 try { Check(__instance); }
                 catch { }
             }
@@ -119,9 +132,7 @@ namespace RCM_Randomizer
 
         static void Check(EntityController entity)
         {
-            // rides every EntityController.Update: a check every 15 frames per unit (spread by instance id
-            // so they do not all land on one frame) is four a second, plenty for a three-second verdict
-            if ((Time.frameCount + entity.GetInstanceID()) % 15 != 0) return;
+            // the frame throttle lives in the patch above, where it costs least
             if (!entity.IsControlledByPlayer || !entity.CanAttack || Reported.Contains(entity.entityId)) return;
 
             var attack = entity.GetAttackForDebugging();
