@@ -93,12 +93,13 @@ namespace RCM_Randomizer
             static void Postfix(EntityIdentifier __instance, EntityController self, List<EntityController> __result)
             {
                 if (__result != null && __result.Count > 0) return;
-                Mark(self, s =>
-                {
-                    s.LastEmptyBox = Time.time;
-                    s.EmptyBoxName = __instance != null ? __instance.name : "?";
-                    s.EmptyBoxCount++;
-                });
+                // no closure here: this runs for every empty lookup of every unit, and a captured lambda
+                // is an allocation per call - garbage that the collector pays back as a hitch
+                if (!Enabled || self == null || !self.IsControlledByPlayer) return;
+                var s = StateOf(self);
+                s.LastEmptyBox = Time.time;
+                s.EmptyBoxName = __instance != null ? __instance.name : "?";
+                s.EmptyBoxCount++;
             }
         }
 
@@ -118,6 +119,9 @@ namespace RCM_Randomizer
 
         static void Check(EntityController entity)
         {
+            // rides every EntityController.Update: a check every 15 frames per unit (spread by instance id
+            // so they do not all land on one frame) is four a second, plenty for a three-second verdict
+            if ((Time.frameCount + entity.GetInstanceID()) % 15 != 0) return;
             if (!entity.IsControlledByPlayer || !entity.CanAttack || Reported.Contains(entity.entityId)) return;
 
             var attack = entity.GetAttackForDebugging();
