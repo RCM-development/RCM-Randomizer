@@ -88,6 +88,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _enemyTitans;
         ConfigEntry<float> _titanEarliest;
         ConfigEntry<bool> _enemyAi, _enemyAiEngagedOnly, _enemyAiValueTargets, _enemyAiPatrolsDefend, _enemyAiDormant;
+        ConfigEntry<bool> _economyBuildings;
         ConfigEntry<float> _enemyAiWaveTempo, _enemyAiDefendShare;
         ConfigEntry<string> _scatterWeapons;
         ConfigEntry<float> _scatterRadius;
@@ -197,6 +198,8 @@ namespace RCM_Randomizer
             _enemyAiValueTargets = Config.Bind("EnemyAI", "ValueTargets", true, "Waves pick targets by value instead of a random known building.");
             _enemyAiPatrolsDefend = Config.Bind("EnemyAI", "PatrolsDefend", true, "Patrolling groups answer defence calls.");
             _enemyAiDormant = Config.Bind("EnemyAI", "DormantRules", true, "Enable the three switched-off rules.");
+            _economyBuildings = Config.Bind("Economy", "Buildings", true,
+                "Six generated economy buildings on the unlock track (Dust Siphon L4, Toll Gate L12, Tithe Altar L20, Bounty Beacon L30, Leech Spire L38, Scrap Furnace L46): area harvesting, tolls on passing enemies, health for crystals, bounties, a draining spire and a refund furnace. Appended cards - removing the mod breaks a save that owns one.");
             _engineerVeterancy = Config.Bind("Engineers", "Veterancy", true,
                 "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (bronze Common, silver Rare, gold UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
             _engineerRankCostFactor = Config.Bind("Engineers", "CareerRankCostFactor", 4f,
@@ -337,8 +340,9 @@ namespace RCM_Randomizer
                     GeneratedDrops.ReapplyLoca();
                     Titans.ReapplyLoca();
                     SalvagedTech.ReapplyLoca();
+                    EconomyBuildings.ReapplyLoca();
                     ApplyDropDescSuffixes();
-                    if (_donorMap != null) MixedUnitPresentation.ApplyMixedNames(_donorMap);
+                    if (_donorMap != null) { MixedUnitPresentation.ApplyMixedNames(_donorMap); ArmedBrawlers.Apply(_donorMap); }
                     return;
                 }
 
@@ -372,6 +376,8 @@ namespace RCM_Randomizer
                 SalvagedTech.Enabled = _salvageCount.Value > 0; SalvagedTech.Count = _salvageCount.Value;
                 SalvagedTech.FirstLevel = _salvageFirstLevel.Value;
                 SalvagedTech.Apply(seed); // after UnlockLevels: its own levels sit above that track
+                EconomyBuildings.Enabled = _economyBuildings.Value;
+                EconomyBuildings.Apply();        // authored levels of their own, so also after UnlockLevels
                 Vault.Enabled = _vault.Value; Vault.FirstLevel = _vaultFirstLevel.Value;
                 Vault.Apply(seed); // before the donor map and the rolls, so reopened cards are treated like any other
                 GeneratedUpgrades.AdvancedCount = _advancedUpgradeCount.Value;
@@ -604,6 +610,7 @@ namespace RCM_Randomizer
             RestoreDropDescSuffixes();
             RestoreCapturedTech();
             UpgradeRolls.Restore();
+            ArmedBrawlers.Restore();
             SpecialistHacks.Restore(); // before RelicRolls.Restore, which writes values back by index
             RelicRolls.Restore();
             GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
@@ -611,6 +618,7 @@ namespace RCM_Randomizer
             GeneratedDrops.Deactivate();
             Vault.Restore();
             SalvagedTech.Deactivate();
+            EconomyBuildings.Deactivate();
             UnlockLevels.Restore();
             Titans.Deactivate();
             Titans.Enabled = false;
@@ -930,6 +938,7 @@ namespace RCM_Randomizer
             {
                 selectorField.SetValue(null, null);
                 MixedUnitPresentation.RestoreNames();
+                ArmedBrawlers.Restore();
                 MixedUnitPresentation.ResetPortraits();
                 _donorMap = null;
                 _turretStatus = "off";
@@ -967,6 +976,7 @@ namespace RCM_Randomizer
                 return "";
             }));
             MixedUnitPresentation.ApplyMixedNames(_donorMap);
+            ArmedBrawlers.Apply(_donorMap);
             MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns
             _turretStatus = $"{_donorMap.Count}/{supported.Count} pairs";
         }

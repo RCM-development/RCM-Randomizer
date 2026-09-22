@@ -346,7 +346,7 @@ namespace RCM_Randomizer
             // changed nothing, because starters are only consulted for entities that roll.
             try { foreach (var id in SpecialistBalancingStore.SpecialistIds(inactive: false)) set.Add(id); } catch { }
             // Titans carry authored numbers on their own rows: no stat roll, no skill, no roof gun on top
-            set.RemoveWhere(Titans.IsGenerated);
+            set.RemoveWhere(id => Titans.IsGenerated(id) || EconomyBuildings.IsGenerated(id));
             // salvage cards build ENEMY units: a player-side roll on one would change the enemy copy too
             // (card changes are side-agnostic), on top of the escalating enemy rolls it already gets
             set.RemoveWhere(id => SalvagedTech.IsGenerated(id) || SalvagedTech.Products.Contains(id));
