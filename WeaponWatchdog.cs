@@ -125,8 +125,10 @@ namespace RCM_Randomizer
                 // instance id so they never all land together. A three-second verdict needs no more.
                 if (!Enabled || __instance == null) return;
                 if ((Time.frameCount + __instance.GetInstanceID()) % 15 != 0) return;
+                long t = ModCost.Start();
                 try { Check(__instance); }
                 catch { }
+                ModCost.Stop(ModCost.Slot.Watchdog, t);
             }
         }
 

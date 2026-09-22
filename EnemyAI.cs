@@ -192,6 +192,7 @@ namespace RCM_Randomizer
                 {
                     using (HookProfiler.Measure("aiValueTarget"))
                     {
+                        long __t = ModCost.Start();
                         RefreshGuards();
                         EntityController best = null;
                         float bestScore = float.MinValue;
@@ -204,6 +205,7 @@ namespace RCM_Randomizer
                             float score = worth / (1f + 0.5f * guarding) * UnityEngine.Random.Range(0.7f, 1.3f);
                             if (score > bestScore) { bestScore = score; best = building; }
                         }
+                        ModCost.Stop(ModCost.Slot.EnemyAi, __t);
                         if (best != null) return best;
                     }
                 }

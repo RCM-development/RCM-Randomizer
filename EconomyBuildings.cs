@@ -39,9 +39,12 @@ namespace RCM_Randomizer
         // needs fighting, then the pieces that pay back whole armies.
         static readonly Spec[] Specs =
         {
-            new Spec { Id = "siphon", Name = "Dust Siphon", Level = 4, Cost = 350, Scale = 0.9f, Tint = new Color(0.75f, 0.95f, 1f), Harvests = true,
-                Description = "Draws crystal dust from every crystal within 3 cells: 0.6 crystals per second per crystal cell, without a harvester. Worth nothing away from a field.",
-                Tick = () => new AreaHarvest { Radius = 3, PerCell = 0.6f } },
+            // Playtested as far too strong for a level 4 card: a field of crystals is many cells, and
+            // it collected all of them at once for the price of a single Dust Catcher. Twice the price
+            // and a slower draw per cell.
+            new Spec { Id = "siphon", Name = "Dust Siphon", Level = 4, Cost = 700, Scale = 0.9f, Tint = new Color(0.75f, 0.95f, 1f), Harvests = true,
+                Description = "Draws crystal dust from every crystal within 3 cells: 0.5 crystals per second per crystal cell, without a harvester. Worth nothing away from a field.",
+                Tick = () => new AreaHarvest { Radius = 3, PerCell = 0.5f } },
             new Spec { Id = "toll", Name = "Toll Gate", Level = 12, Cost = 400, Scale = 1.05f, Tint = new Color(1f, 0.9f, 0.6f),
                 Description = "Every enemy unit within 6 cells pays a toll of 1 crystal per second (at most 8 per second). Put it where they walk.",
                 Tick = () => new Toll { Radius = 6, PerUnit = 1f, Cap = 8f } },
@@ -234,7 +237,9 @@ namespace RCM_Randomizer
                 try
                 {
                     var self = payload.Self;
+                    long t = ModCost.Start();
                     if (self != null && self.StillExists && (RunsWhileDying || !self.DestroyHasBeenStarted)) Second(self);
+                    ModCost.Stop(ModCost.Slot.Economy, t);
                 }
                 catch (Exception e) { TestMod.RCMManager.Log("Randomizer: " + ActionName + " failed (" + e.Message + ")"); }
                 return UpdateStatus.Stop;

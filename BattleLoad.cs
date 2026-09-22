@@ -57,7 +57,8 @@ namespace RCM_Randomizer
             float averageMs = _frames > 0 ? _sumMs / _frames : 0f;
             TestMod.RCMManager.Log($"Randomizer LOAD: {player + ai} entities (player {player}, ai {ai})"
                 + $" - {(averageMs > 0.01f ? 1000f / averageMs : 0f):F0} fps avg, worst frame {_worstMs:F0}ms,"
-                + $" {_slowFrames} of {_frames} frames over {SlowFrameMs:F0}ms");
+                + $" {_slowFrames} of {_frames} frames over {SlowFrameMs:F0}ms"
+                + " - " + ModCost.Take(_frames));
 
             _windowStart = Time.unscaledTime;
             _frames = _slowFrames = 0;

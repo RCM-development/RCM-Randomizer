@@ -1,5 +1,11 @@
 # Changelog
 
+
+## 0.9.4 — unreleased
+
+- **Dust Siphon halved in value**: 700 crystals (was 350) and 0.5 per crystal cell per second (was 0.6). A crystal field is many cells, so at level 4 it collected all of them at once for the price of one Dust Catcher.
+- **The census says what the mod itself costs.** The first battle census measured the shape of the late-game slowdown - 93 fps at 40 entities, 78 at 90, 69 at 130, 52 at 175, 37 at 220, with 13 percent of frames under 30 fps past 200 - but nothing in it separated the mod's per-unit hooks from the game's own. The hooks that run per unit or per second now add themselves up and the LOAD line reports the total: `0.34ms/frame in mod hooks [Watchdog 0.21, Economy 0.05, EnemyAi 0.00, armor getter 180/frame]`.
+- The mixer's phase timings attributed the spawn spike: of an 18-25ms swap, **instantiating the donor unit is 17-24ms of it** and everything else (aiming, event surgery, measuring, scaling, alignment) is under 2ms combined. Only about ten swaps happened in a whole session, so this is a one-off spike per pairing, not the sustained late-game cost.
 ## 0.9.3 — 2026-09-22
 
 Two reports from the same battle, both traced to their cause in the game's own code rather than guessed at - and the enemy AI, read off its own rule data.

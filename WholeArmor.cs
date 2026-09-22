@@ -14,6 +14,7 @@ namespace RCM_Randomizer
     {
         static void Postfix(ref float __result)
         {
+            ModCost.ArmorCalls++;
             if (__result > -1e30f) __result = Mathf.Round(__result);
         }
     }
