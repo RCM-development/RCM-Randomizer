@@ -269,7 +269,7 @@ namespace RCM_Randomizer
             {
                 if (_mode.Value == Mode.Off)
                 {
-                    if (_appliedChangeIds.Count > 0) { RemoveRolls(); RefreshUi(); }
+                    if (_appliedChangeIds.Count > 0 || WeaponRows.Any) { RemoveRolls(); RefreshUi(); }
                     // say so out loud: an Off mode persists in the config across restarts and
                     // silently disables rolls, names, portraits and stable turrets at once
                     if (!_loggedOffMode)
@@ -595,6 +595,8 @@ namespace RCM_Randomizer
 
         void RemoveRolls()
         {
+            // first: everything below and the next apply read "original" values from the rows
+            WeaponRows.Restore();
             bool hadChanges = _appliedChangeIds.Count > 0;
             foreach (int id in _appliedChangeIds)
             {
@@ -1025,6 +1027,7 @@ namespace RCM_Randomizer
 
             var overrides = ParseWeaponPriceOverrides();
             var changes = new List<CardChangeScriptableObject>();
+            var bakes = new List<(string id, float damage, float cooldown, float range, float gain)>();
             foreach (var pair in _donorMap)
             {
                 float costMult;
@@ -1103,21 +1106,21 @@ namespace RCM_Randomizer
                 catch { continue; }
                 if (overrides.TryGetValue(pair.Value, out float extra)) costMult *= extra;
 
-                if (Mathf.Abs(cooldownRatio - 1f) > 0.02f)
-                    changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Attack1Cooldown, cooldownRatio, pair.Key));
-                if (Mathf.Abs(damageRatio - 1f) > 0.02f)
-                    changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Damage1, damageRatio, pair.Key));
+                // damage, cooldown and reach go into the host's base row (see WeaponRows for why a
+                // card change is the wrong place for them); written after the loop, so every pair
+                // above was measured against untouched rows - a host is often another pair's donor
+                if (Mathf.Abs(cooldownRatio - 1f) > 0.02f || Mathf.Abs(damageRatio - 1f) > 0.02f
+                    || Mathf.Abs(rangeRatio - 1f) > 0.02f || rangeGain > 0.01f)
+                    bakes.Add((pair.Key, damageRatio, cooldownRatio, rangeRatio, rangeGain));
                 if (Mathf.Abs(splashDelta) > 0.01f)
                     changes.Add(AddChange(EntityBalancingStore.ChangeableValue.EffectRadius1, splashDelta, pair.Key));
-                if (Mathf.Abs(rangeRatio - 1f) > 0.02f)
-                    changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.WeaponRange, rangeRatio, pair.Key));
-                if (rangeGain > 0.01f)
-                    changes.Add(AddChange(EntityBalancingStore.ChangeableValue.WeaponRange, rangeGain, pair.Key));
                 if (Mathf.Abs(costMult - 1f) < 0.02f) continue;
 
                 changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Cost, costMult, pair.Key));
                 changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.ProductionDuration, Mathf.Sqrt(costMult), pair.Key));
             }
+            foreach (var bake in bakes)
+                WeaponRows.Bake(bake.id, bake.damage, bake.cooldown, bake.range, bake.gain);
             if (changes.Count == 0) return;
 
             SetLocaText(WeaponPricingLocaKey, "Weapon swap");

@@ -246,6 +246,9 @@ namespace RCM_Randomizer
             }
             catch (Exception e) { sb.AppendLine("PROBE FAILED: " + e); }
 
+            try { ProbeAudit.Write(Path.Combine(BepInEx.Paths.BepInExRootPath, "RandomizerAudit.tsv"), donorOf); }
+            catch (Exception e) { sb.AppendLine("AUDIT FAILED: " + e); }
+
             // the enemy's rule set is long enough to bury everything else: its own file, written first
             // so the main probe's timestamp still marks the end of the whole dump
             try
