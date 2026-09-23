@@ -31,7 +31,6 @@ namespace RCM_Randomizer
             public int Level, Cost;
             public float Scale;          // world model
             public Color Tint;
-            public bool Harvests;        // keeps the Harvester role (the game treats these as economy)
             public Func<IEntityAction> Tick;
         }
 
@@ -42,7 +41,7 @@ namespace RCM_Randomizer
             // Playtested as far too strong for a level 4 card: a field of crystals is many cells, and
             // it collected all of them at once for the price of a single Dust Catcher. Twice the price
             // and a slower draw per cell.
-            new Spec { Id = "siphon", Name = "Dust Siphon", Level = 4, Cost = 700, Scale = 0.9f, Tint = new Color(0.75f, 0.95f, 1f), Harvests = true,
+            new Spec { Id = "siphon", Name = "Dust Siphon", Level = 4, Cost = 700, Scale = 0.9f, Tint = new Color(0.75f, 0.95f, 1f),
                 Description = "Draws crystal dust from every crystal within 3 cells: 0.5 crystals per second per crystal cell, without a harvester. Worth nothing away from a field.",
                 Tick = () => new AreaHarvest { Radius = 3, PerCell = 0.5f } },
             new Spec { Id = "toll", Name = "Toll Gate", Level = 12, Cost = 400, Scale = 1.05f, Tint = new Color(1f, 0.9f, 0.6f),
@@ -97,7 +96,13 @@ namespace RCM_Randomizer
                 row.maxArmor = 0f;
                 row.maxHealth = (int)(row.maxHealth * (1f + spec.Level / 60f));
                 row.cardModelScalingFactor *= spec.Scale;
-                if (!spec.Harvests) row.roles &= ~UnitRole.Harvester;
+                // The template IS a refinery - the Dust Catcher is one of the economies picked at run
+                // setup - and its roles made each of these one too: PlaceBuildings lets a Refinery be
+                // placed anywhere (the "near a refinery" rule skips it), every other building could then
+                // be placed around it, and harvesters unloaded at the closest one. And the Harvester role
+                // takes the account upgrade EconFactoryCapacity (+1 cap for Harvester cards): 3 became 4.
+                // Their income is our own Tick, which needs neither role.
+                row.roles &= ~(UnitRole.Refinery | UnitRole.Harvester);
                 row.isAllowedAsBlueprint = true;
                 row.isAllowedAsStartingBlueprint = false;
                 row.isAllowedForAi = false;

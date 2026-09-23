@@ -71,6 +71,81 @@ namespace RCM_Randomizer
             WriteIncome(Path.ChangeExtension(path, null) + "Income.txt");
             WriteStatUse(Path.ChangeExtension(path, null) + "StatUse.tsv");
             WriteRolledTexts(Path.ChangeExtension(path, null) + "Texts.txt");
+            WriteMeta(Path.ChangeExtension(path, null) + "Meta.txt");
+            WriteSpawnCost(Path.ChangeExtension(path, null) + "Spawn.txt", donorOf);
+        }
+
+        // A mixed unit's spawn instantiates its donor whole (16-24ms in battle logs) only to take its
+        // turret. How much of that is the donor's own Awake/OnEnable - which an inactive instantiate
+        // skips - and how much is copying the object? Timed per donor, warm, both ways.
+        static void WriteSpawnCost(string path, Func<string, string> donorOf)
+        {
+            var donors = new System.Collections.Generic.SortedSet<string>(StringComparer.Ordinal);
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string d = null;
+                try { d = donorOf?.Invoke(row.entityId); } catch { }
+                if (!string.IsNullOrEmpty(d)) donors.Add(d);
+            }
+            var sb = new StringBuilder("donor\tactiveMs\tinactiveMs\trenderers\tparticles\tcomponents\n");
+            double sumA = 0, sumI = 0;
+            var watch = new System.Diagnostics.Stopwatch();
+            foreach (string id in donors)
+            {
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
+                    if (prefab == null) continue;
+                    double a = 0, i = 0;
+                    for (int pass = 0; pass < 2; pass++) // first pass warms caches, second is measured
+                    {
+                        watch.Restart();
+                        var live = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                        a = watch.Elapsed.TotalMilliseconds;
+                        UnityEngine.Object.DestroyImmediate(live);
+                        bool was = prefab.activeSelf;
+                        prefab.SetActive(false);
+                        try
+                        {
+                            watch.Restart();
+                            var dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                            i = watch.Elapsed.TotalMilliseconds;
+                            UnityEngine.Object.DestroyImmediate(dormant);
+                        }
+                        finally { prefab.SetActive(was); }
+                    }
+                    sumA += a; sumI += i;
+                    sb.AppendLine($"{id}\t{a:0.00}\t{i:0.00}\t{prefab.GetComponentsInChildren<UnityEngine.Renderer>(true).Length}\t{prefab.GetComponentsInChildren<UnityEngine.ParticleSystem>(true).Length}\t{prefab.GetComponentsInChildren<UnityEngine.Component>(true).Length}");
+                }
+                catch (Exception e) { sb.AppendLine(id + "\tFAILED\t" + e.Message); }
+            }
+            sb.AppendLine($"TOTAL\t{sumA:0.0}\t{sumI:0.0}\t{donors.Count} donors");
+            var mixer = HarmonyLib.AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
+            sb.AppendLine("battle census can read the mixer's swap totals: "
+                + (mixer != null && HarmonyLib.AccessTools.Field(mixer, "UnitSwapCount") != null && HarmonyLib.AccessTools.Field(mixer, "UnitSwapMs") != null));
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // Account (meta) upgrades carry card changes of their own and are loaded into the balancing
+        // store per run, so the menu-time table can miss them. Every one, owned or not, with its changes.
+        static void WriteMeta(string path)
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                foreach (var up in MetaProgressionUpgrade.MetaProgressionUpgrades())
+                {
+                    int owned = 0;
+                    try { owned = MetaGame.Instance.MetaProgressionMultiplier(up.metaProgressionUpgradeId); } catch { }
+                    sb.AppendLine($"{up.metaProgressionUpgradeId}\towned x{owned}\tdeactivated={up.isDeactivated}");
+                    if (up.cardChanges == null) continue;
+                    foreach (var c in up.cardChanges)
+                        if (c != null)
+                            sb.AppendLine($"    {c.valueToChange} {c.operation} {F(c.value)} side={c.side} oneOf={c.cardMustHaveOneOfTheseRoles} allOf={c.cardMustHaveAllOfTheseRoles} notOf={c.cardMustNotHaveOneOfTheseRoles} only={(c.onlyForTheseEntityIds == null ? "" : string.Join(",", c.onlyForTheseEntityIds))}");
+                }
+            }
+            catch (Exception e) { sb.AppendLine("FAILED " + e.Message); }
+            File.WriteAllText(path, sb.ToString());
         }
 
         // Rolled vanilla hacks and upgrades rewrite every number in their description by the roll's
@@ -170,7 +245,7 @@ namespace RCM_Randomizer
             var sb = new StringBuilder();
             foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
             {
-                if (!row.isAllowedAsBlueprint || row.inactive || (row.roles & UnitRole.Refinery) == 0) continue;
+                if (!row.isAllowedAsBlueprint || row.inactive || ((row.roles & UnitRole.Refinery) == 0 && !EconomyBuildings.IsGenerated(row.entityId))) continue;
                 try
                 {
                     var prefab = UnityEngine.Resources.Load(row.prefabLocation ?? "") as UnityEngine.GameObject;

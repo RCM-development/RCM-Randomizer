@@ -199,7 +199,7 @@ namespace RCM_Randomizer
                         foreach (var building in Buildings)
                         {
                             if (building == null || !building.StillExists) continue;
-                            float worth = building.HasRole(UnitRole.Refinery) || building.HasRole(UnitRole.Harvester) ? 3f
+                            float worth = building.HasRole(UnitRole.Refinery) || building.HasRole(UnitRole.Harvester) || EconomyBuildings.IsGenerated(building.EntityId) ? 3f
                                         : building.IsFactory ? 2f : 1f;
                             int guarding = Guarded.TryGetValue(building, out int count) ? count : 0;
                             float score = worth / (1f + 0.5f * guarding) * UnityEngine.Random.Range(0.7f, 1.3f);
