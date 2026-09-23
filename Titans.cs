@@ -121,9 +121,8 @@ namespace RCM_Randomizer
             // a Titan is never mixed, so it must not inherit a donor it does not carry
             try
             {
-                string name = Loca.BlueprintName(entityId);
-                int plus = name.IndexOf(" + ", StringComparison.Ordinal);
-                return plus > 0 ? name.Substring(0, plus) : name;
+                // the ORIGINAL name: a mixed card no longer carries a " + " to cut at
+                return MixedUnitPresentation.BaseName(entityId) ?? Loca.BlueprintName(entityId);
             }
             catch { return entityId; }
         }

@@ -246,12 +246,37 @@ namespace RCM_Randomizer
             return map;
         }
 
+        // The game keeps separate ids for the player's and the enemy's copy of the same building -
+        // FlameTurret/FlameTurretAI, HomingMissileTurret/HomingMissileTurretAI, LaserCannonTurret/
+        // LaserCannonTurretAI: one model, one weapon, one display name. Skipping only the exact id
+        // let a turret draw its own AI twin, which transplants a weapon onto itself and printed
+        // "Homing Missile Turret + Homing Missile Turret" on the card. A twin is recognised by its id
+        // with the side marker taken off, and - as a backstop for pairs the ids do not give away -
+        // by an identical display name.
+        public static bool SameUnit(string a, string b)
+        {
+            if (string.Equals(CoreId(a), CoreId(b), StringComparison.OrdinalIgnoreCase)) return true;
+            string na = MixedUnitPresentation.BaseName(a), nb = MixedUnitPresentation.BaseName(b);
+            return na != null && nb != null && string.Equals(na, nb, StringComparison.OrdinalIgnoreCase);
+        }
+
+        static readonly string[] SideMarkers = { "AI", "Ai", "Enemy", "Player", "Neutral", "Boss" };
+        static string CoreId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return id;
+            string core = id.TrimStart('_');
+            foreach (var marker in SideMarkers)
+                if (core.Length > marker.Length && core.EndsWith(marker, StringComparison.Ordinal))
+                    return core.Substring(0, core.Length - marker.Length);
+            return core;
+        }
+
         static string PickDonor(List<string> band, List<string> usable, string baseId, int next, Func<string, string, bool> compatible)
         {
             for (int step = 0; step < usable.Count; step++)
             {
                 string candidate = usable[(next + step) % usable.Count];
-                if (candidate == baseId) continue;
+                if (candidate == baseId || SameUnit(baseId, candidate)) continue;
                 if (compatible != null && !compatible(baseId, candidate)) continue;
                 return candidate;
             }

@@ -55,6 +55,47 @@ namespace RCM_Randomizer
                 catch (Exception e) { sb.AppendLine("blueprints FAILED " + e.Message); }
                 sb.AppendLine();
                 ProbeProgression.Dump(sb);
+                // A card read "Homing Missile Turret + Homing Missile Turret" while the donor map gave
+                // that turret no donor at all - so the NAME was wrong independently of the weapon. Every
+                // name the player can see is checked against what the unit actually carries: a mixed
+                // name on an unmixed unit, a name whose two halves are the same, and a mixed unit whose
+                // name does not say so.
+                sb.AppendLine("# name audit: displayed name vs the donor the unit actually carries");
+                try
+                {
+                    int bad = 0;
+                    var mixedNames = new List<string>();
+                    var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+                    {
+                        if (row.inactive) continue;
+                        string unit = row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : row.entityId;
+                        if (!row.isAllowedAsBlueprint && row.entityId != unit) continue;
+                        string shown; try { shown = Loca.BlueprintName(unit); } catch { continue; }
+                        if (string.IsNullOrEmpty(shown)) continue;
+                        string original = MixedUnitPresentation.BaseName(unit) ?? shown;
+                        string donor = donorOf != null ? donorOf(unit) : null;
+                        string problem = null;
+                        bool renamed = !string.Equals(shown, original, StringComparison.Ordinal);
+                        if (!string.IsNullOrEmpty(donor) && RollEngine.SameUnit(unit, donor)) problem = "carries its own twin " + donor;
+                        else if (renamed && string.IsNullOrEmpty(donor) && !shown.StartsWith("Armed ", StringComparison.Ordinal)) problem = "renamed but carries NO donor";
+                        else if (!renamed && !string.IsNullOrEmpty(donor)) problem = "carries " + donor + " but keeps its plain name";
+                        else if (shown.Split(' ').GroupBy(w => w, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1 && g.Key.Length > 2)) problem = "a word repeats";
+                        // duplicates the GAME ships (its AI copies, every tree called "Obstacle") are not ours;
+                        // only a name this mod wrote has to be unique
+                        else if (renamed && seen.TryGetValue(shown, out string other) && other != unit) problem = "same name as " + other;
+                        if (renamed) seen[shown] = unit;
+                        if (!string.IsNullOrEmpty(donor) && renamed) mixedNames.Add($"{original,-26} <- {MixedUnitPresentation.BaseName(donor) ?? donor,-26} => {shown}");
+                        if (problem == null) continue;
+                        bad++;
+                        sb.AppendLine($"    PROBLEM {unit} (card {row.entityId}) | shown \"{shown}\" | donor={donor ?? "-"} | {problem}");
+                    }
+                    sb.AppendLine($"    {bad} names out of step with their unit");
+                    sb.AppendLine("    every mixed name this seed (host <- donor => shown):");
+                    foreach (var line in mixedNames.Distinct().OrderBy(s => s, StringComparer.Ordinal)) sb.AppendLine("      " + line);
+                }
+                catch (Exception e) { sb.AppendLine("name audit FAILED " + e.Message); }
+                sb.AppendLine();
                 sb.AppendLine("# salvage cards: enemy units unlocked above the vanilla track");
                 try
                 {

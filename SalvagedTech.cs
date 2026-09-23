@@ -125,10 +125,9 @@ namespace RCM_Randomizer
         {
             try
             {
-                string name = Loca.BlueprintName(entityId);
-                if (string.IsNullOrEmpty(name) || name == entityId) return Prettify(entityId);
-                int plus = name.IndexOf(" + ", StringComparison.Ordinal);
-                return plus > 0 ? name.Substring(0, plus) : name;
+                // the ORIGINAL name: a mixed card no longer carries a " + " to cut at
+                string name = MixedUnitPresentation.BaseName(entityId) ?? Loca.BlueprintName(entityId);
+                return string.IsNullOrEmpty(name) || name == entityId ? Prettify(entityId) : name;
             }
             catch { return Prettify(entityId); }
         }

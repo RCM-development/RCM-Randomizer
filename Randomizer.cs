@@ -342,7 +342,7 @@ namespace RCM_Randomizer
                     SalvagedTech.ReapplyLoca();
                     EconomyBuildings.ReapplyLoca();
                     ApplyDropDescSuffixes();
-                    if (_donorMap != null) { MixedUnitPresentation.ApplyMixedNames(_donorMap); ArmedBrawlers.Apply(_donorMap); }
+                    if (_donorMap != null) { ArmedBrawlers.Restore(); MixedUnitPresentation.ApplyMixedNames(_donorMap); ArmedBrawlers.Apply(_donorMap); }
                     return;
                 }
 
@@ -937,8 +937,11 @@ namespace RCM_Randomizer
             if (!_turretShuffle.Value || _mode.Value == Mode.Off)
             {
                 selectorField.SetValue(null, null);
-                MixedUnitPresentation.RestoreNames();
+                // layers come off in the reverse order they went on: "Armed" sits on top of the mixed
+                // name, so it is undone FIRST - the other way round wrote the mixed names back over
+                // the originals, and a unit kept its mixed name with the shuffle switched off
                 ArmedBrawlers.Restore();
+                MixedUnitPresentation.RestoreNames();
                 MixedUnitPresentation.ResetPortraits();
                 _donorMap = null;
                 _turretStatus = "off";
@@ -975,6 +978,7 @@ namespace RCM_Randomizer
                 // receive) would have been mixed anyway, differently on every spawn.
                 return "";
             }));
+            ArmedBrawlers.Restore();       // the layer on top comes off first, or its stale names are written back
             MixedUnitPresentation.ApplyMixedNames(_donorMap);
             ArmedBrawlers.Apply(_donorMap);
             MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns

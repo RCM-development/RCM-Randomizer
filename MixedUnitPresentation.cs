@@ -8,7 +8,8 @@ using UnityEngine.Rendering;
 
 namespace RCM_Randomizer
 {
-    // Makes mixed units look like what they are: renames them "Base x Donor" and replaces their
+    // Makes mixed units look like what they are: names them for the donor weapon on the host chassis
+    // ("Eradicator Support Tank", see MixName) and replaces their
     // portrait with a snapshot of the first actually-spawned (turret-swapped, scaled) instance.
     // Both ride game-owned caches, so every UI surface follows: names resolve through
     // Loca.BlueprintName, images through EntityBalancingStore.EntityImage's ImageOf cache.
@@ -28,6 +29,25 @@ namespace RCM_Randomizer
         // be written under the lowercased entityId or they are simply never found.
         static string LocaKey(string entityId) => entityId.Trim().ToLowerInvariant();
 
+        // The display name an id had before anything here touched it, captured the first time it is
+        // seen. Twin detection (RollEngine.SameUnit) and the name audit need the ORIGINAL, and the
+        // live dictionary can hold a mixed name from the previous apply cycle.
+        static readonly Dictionary<string, string> OriginalNames = new Dictionary<string, string>();
+        public static string BaseName(string entityId)
+        {
+            if (string.IsNullOrEmpty(entityId)) return null;
+            string key = LocaKey(entityId);
+            if (OriginalNames.TryGetValue(key, out string name)) return name;
+            try
+            {
+                if (Loca.BlueprintNameDictionary.Count < 1) Loca.Init();
+                var dict = Loca.BlueprintNameDictionary.TryGetValue("en", out var en) ? en : Loca.BlueprintNameDictionary.Values.FirstOrDefault();
+                if (dict != null && dict.TryGetValue(key, out name)) return name;
+            }
+            catch { }
+            return null;
+        }
+
         public static void ApplyMixedNames(Dictionary<string, string> donorMap)
         {
             if (Loca.BlueprintNameDictionary.Count < 1) Loca.Init();
@@ -36,17 +56,107 @@ namespace RCM_Randomizer
             {
                 var dict = language.Value;
                 var originals = new Dictionary<string, string>(dict);
+                if (language.Key == "en" || OriginalNames.Count == 0)
+                    foreach (var entry in originals) if (!OriginalNames.ContainsKey(entry.Key)) OriginalNames[entry.Key] = entry.Value;
+                var vanilla = new HashSet<string>(originals.Values.Select(Norm));
+                var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var saved = new Dictionary<string, string>();
-                foreach (var pair in donorMap)
+                foreach (var pair in donorMap.OrderBy(p => p.Key, StringComparer.Ordinal))
                 {
                     string baseKey = LocaKey(pair.Key);
                     if (!originals.TryGetValue(baseKey, out string baseName)) continue;
                     if (!originals.TryGetValue(LocaKey(pair.Value), out string donorName)) continue;
+                    string mixed = MixName(baseName, donorName, vanilla, taken);
+                    if (mixed == null) continue;
+                    taken.Add(mixed);
                     saved[baseKey] = baseName;
-                    dict[baseKey] = baseName + " + " + donorName;
+                    dict[baseKey] = mixed;
                 }
                 SavedNames[language.Key] = saved;
             }
+        }
+
+        // ---- Mixed names ---------------------------------------------------------------------------
+        // "Base + Donor" was accurate and unreadable: two full unit names glued together, wrapping to
+        // two lines on every card, and meaningless when both halves were the same turret. A mixed unit
+        // is now named for what it IS - the donor's weapon on the host's chassis:
+        //   Support Tank      + PCX Eradicator          -> Eradicator Support Tank
+        //   Mantis Mech       + Incinerator             -> Incinerator Mantis Mech
+        //   Homing Missile Turret + Railgun Turret      -> Railgun Turret?  (a real name - so:)
+        //                                                -> Homing Missile Turret (Railgun)
+        // Brand prefixes (PCX, CF3, Robo...) and body nouns (Tank, Turret, Walker...) are taken off
+        // the donor to find its weapon; weapon words are taken off the host to find its chassis. A
+        // name that would collide with a real unit, repeat a word, or repeat another mixed name this
+        // seed falls back to "Host (Weapon)", which is always unique and still short.
+        static readonly HashSet<string> Brands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "PCX", "CF1", "CF2", "CF3", "CF4", "CF5", "Robo", "Ancient", "Titan", "Salvaged", "Armed", "Elite", "T0", "T1", "T2", "T3" };
+        static readonly HashSet<string> Bodies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "Turret", "Tank", "Mech", "Walker", "Bot", "Jeep", "Truck", "Van", "Hovercraft", "Hover", "Buggy", "Bike", "Tower",
+              "Trike", "Crawler", "Drone", "4x4", "Vehicle", "Tractor", "Craft", "Factory", "Marine" };
+        static readonly HashSet<string> WeaponWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "Homing", "Missile", "Missiles", "Rocket", "Rockets", "Laser", "Beam", "Flame", "Cannon", "Double", "Gatling",
+              "Machine", "Gun", "MG", "Railgun", "Rail", "Lightning", "Tesla", "Chain", "Grenade", "Grenadier", "Artillery", "Mortar",
+              "Sniper", "Shotgun", "Claw", "Blade", "Poker", "Spear", "Plasma", "Stun", "Boulder", "Swarm", "Launcher", "With" };
+
+        public static string MixName(string host, string donor, HashSet<string> vanilla, HashSet<string> taken)
+        {
+            if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(donor)) return null;
+            // the same unit under two ids: there is nothing to name, and the picker refuses the pair
+            if (string.Equals(host, donor, StringComparison.OrdinalIgnoreCase)) return null;
+
+            // the donor's weapon: its name without brand and body. What is left must be a real word -
+            // "PCX A Tank" leaves "A" and "PCX CF Tank" leaves "CF", which name nothing, and
+            // "Ancient Turret" leaves no weapon at all. Those are named in brackets instead, where
+            // the donor's own name (brand kept) says exactly what was fitted.
+            var donorWords = Words(donor);
+            var weapon = donorWords.Where(w => !Brands.Contains(w) && !Bodies.Contains(w) && w != "With").ToList();
+            string weaponText = string.Join(" ", weapon);
+            bool weaponIsAName = weapon.Count > 0 && (weaponText.Length > 2 || weaponText == "MG");
+            string bracket = host + " (" + (weaponIsAName ? weaponText : string.Join(" ", donorWords.Where(w => !Brands.Contains(w) || donorWords.Count(x => !Brands.Contains(x)) <= 1))) + ")";
+            if (!weaponIsAName) return Claim(bracket, host, donor, taken);
+
+            // The host's own name falls into one of three shapes, and each is named differently:
+            //  - no weapon in it ("Support Tank", "Juggernaut"): the donor's weapon goes in front -
+            //    "Scout Cruiser Support Tank", "Incinerator Juggernaut";
+            //  - a weapon on a real chassis ("Heavy MG Tank", "Charge Laser Tank"): the weapon word is
+            //    swapped - "Machine Gun Heavy Tank", "Rocket Charge Tank";
+            //  - a weapon on a bare noun ("Missile Mech", "Boulder Turret"): swapping leaves just "Mech"
+            //    or "Turret" and hides which card this was, and prefixing gives "Railgun Missile Mech",
+            //    which reads as two guns when the host's own is gone. Those keep their name and say
+            //    what they now carry: "Missile Mech (Railgun)".
+            // The brand stays in front throughout ("PCX MG Blink Walker").
+            var hostWords = Words(host);
+            string brand = hostWords.Count > 1 && Brands.Contains(hostWords[0]) ? hostWords[0] : null;
+            var rest = brand != null ? hostWords.Skip(1).ToList() : hostWords;
+            var chassis = rest.Where(w => !WeaponWords.Contains(w)).ToList();
+            bool hostArmed = chassis.Count < rest.Count;
+            if (hostArmed && chassis.Count < 2) return Claim(bracket, host, donor, taken);
+            var body = hostArmed ? chassis : rest;
+            string candidate = (brand != null ? brand + " " : "") + weaponText + " " + string.Join(" ", body);
+
+            bool repeats = Words(candidate).GroupBy(w => w, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1);
+            if (repeats || vanilla.Contains(Norm(candidate)) || taken.Contains(candidate) || string.Equals(candidate, host, StringComparison.OrdinalIgnoreCase))
+                candidate = bracket;
+            return Claim(candidate, host, donor, taken);
+        }
+
+        // "Machine Gun Turret" is the vanilla "MachineGun Turret" with a space in it - same name to a
+        // player, so collisions are checked with spacing and case taken out
+        static string Norm(string name) => new string(name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+        static string Claim(string candidate, string host, string donor, HashSet<string> taken)
+            => taken.Contains(candidate) ? host + " (" + donor + ")" : candidate;
+
+        // Words of a display name, with run-together names split the way they read: the game has
+        // "RepeaterTurret", "MachineGun Turret", "PCXGunRunner" and "SmartGrenade Marine", which
+        // otherwise hide their brand and weapon words from every rule above.
+        static List<string> Words(string name)
+        {
+            var words = new List<string>();
+            foreach (var token in name.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries))
+                words.AddRange(System.Text.RegularExpressions.Regex.Split(token, "(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+                    .Where(w => w.Length > 0));
+            return words;
         }
 
         public static void RestoreNames()
