@@ -30,7 +30,7 @@ namespace RCM_Randomizer
                 float value;
                 try { value = EntityBalancingStore.GetOriginalValueAsFloat(cardStat ? row.entityId : unit, stat); } catch { continue; }
                 cards++;
-                if (value > 0.0001f) having++;
+                if (value > 0.0001f && (cardStat || StatUse.Reads(unit, stat))) having++;
             }
             float share = cards > 0 ? (float)having / cards : 0f;
             Cache[(role, stat)] = share;

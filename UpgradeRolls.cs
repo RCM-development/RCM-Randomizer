@@ -17,11 +17,28 @@ namespace RCM_Randomizer
             public float Factor;
             public List<float> OriginalValues;
             public Dictionary<string, string> OriginalDescriptions = new Dictionary<string, string>();
+            public Dictionary<string, string> Written = new Dictionary<string, string>();
+            public List<RollText.Change> Changes;
         }
 
         static readonly Dictionary<string, SavedUpgrade> Applied = new Dictionary<string, SavedUpgrade>();
-        // cardChange assets can be shared between upgrades; never scale the same object twice
-        static readonly HashSet<CardChangeScriptableObject> ScaledChanges = new HashSet<CardChangeScriptableObject>();
+
+        // for the probe: every rolled card with its factor, the change values it had before, and its
+        // description before and after (the English one when present)
+        public static IEnumerable<(string id, float factor, List<float> originals, string before, string after)> Report()
+        {
+            foreach (var entry in Applied)
+            {
+                string key = entry.Key.Trim().ToLowerInvariant(), before = null, after = null;
+                foreach (var language in entry.Value.OriginalDescriptions)
+                {
+                    before = language.Value;
+                    if (Loca.UpgradeDescriptionDictionary.TryGetValue(language.Key, out var dict)) dict.TryGetValue(key, out after);
+                    if (language.Key.IndexOf("en", StringComparison.OrdinalIgnoreCase) >= 0) break;
+                }
+                yield return (entry.Key, entry.Value.Factor, entry.Value.OriginalValues, before, after);
+            }
+        }
 
         public static void Apply(int seed, float intensity, float luck)
         {
@@ -51,21 +68,13 @@ namespace RCM_Randomizer
             double u = rand.NextDouble() * 2.0 - 1.0 + Math.Min(0.6f, 0.25f * luck); // luck biases stronger upgrades
             if (u > 1.0) u = 1.0;
             float factor = (float)Math.Exp(u * logMax);
-            if (Math.Abs(factor - 1f) < 0.04f) return false;
+            // an asset another card already scaled sets the factor: this card's text must match it
+            if (!ChangeScaleLedger.TryAdopt(upgrade.cardChanges, out float adopted) && Math.Abs(factor - 1f) < 0.04f) return false;
+            if (Math.Abs(adopted - 1f) > 0.0001f) factor = adopted;
 
-            var saved = new SavedUpgrade { Factor = factor, OriginalValues = upgrade.cardChanges.Select(c => c != null ? c.value : 0f).ToList() };
-            bool scaledAny = false;
-            foreach (var change in upgrade.cardChanges)
-            {
-                if (change == null || !ScaledChanges.Add(change)) continue;
-                // Multiply changes carry their magnitude as (value - 1); Add changes carry it directly
-                if (change.operation == CardChangeScriptableObject.Operation.Multiply)
-                    change.value = 1f + (change.value - 1f) * factor;
-                else
-                    change.value *= factor;
-                scaledAny = true;
-            }
-            if (!scaledAny) return false;
+            var saved = new SavedUpgrade { Factor = factor, OriginalValues = upgrade.cardChanges.Select(ChangeScaleLedger.OriginalOf).ToList() };
+            foreach (var change in upgrade.cardChanges) ChangeScaleLedger.Scale(change, factor, "upgrade");
+            saved.Changes = RollText.Of(upgrade.cardChanges);
 
             RewriteDescription(upgradeId, factor, saved);
             Applied[upgradeId] = saved;
@@ -79,18 +88,11 @@ namespace RCM_Randomizer
             foreach (var language in Loca.UpgradeDescriptionDictionary)
             {
                 if (!language.Value.TryGetValue(key, out string text)) continue;
+                // still our own text (no localization reload since): rewriting it again would re-match its new numbers
+                if (saved.Written.TryGetValue(language.Key, out string written) && written == text) continue;
                 if (!saved.OriginalDescriptions.ContainsKey(language.Key)) saved.OriginalDescriptions[language.Key] = text;
-                language.Value[key] = Regex.Replace(text, @"\d+(?:[.,]\d+)?", match => ScaleNumberToken(match.Value, factor));
+                language.Value[key] = saved.Written[language.Key] = RollText.Rewrite(text, saved.Changes);
             }
-        }
-
-        static string ScaleNumberToken(string token, float factor)
-        {
-            if (!float.TryParse(token.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float value)) return token;
-            float scaled = value * factor;
-            bool wasInteger = token.IndexOf('.') < 0 && token.IndexOf(',') < 0;
-            if (wasInteger) return Math.Max(1, (int)Math.Round(scaled)).ToString(CultureInfo.InvariantCulture);
-            return scaled.ToString("0.#", CultureInfo.InvariantCulture);
         }
 
         // The game reloads its localization at startup/language switches; rewrite again on top
@@ -109,11 +111,6 @@ namespace RCM_Randomizer
             {
                 try
                 {
-                    var upgrade = UpgradeBalancingStore.ScriptableObject(entry.Key);
-                    if (upgrade?.cardChanges != null)
-                        for (int i = 0; i < upgrade.cardChanges.Count && i < entry.Value.OriginalValues.Count; i++)
-                            if (upgrade.cardChanges[i] != null) upgrade.cardChanges[i].value = entry.Value.OriginalValues[i];
-
                     string key = entry.Key.Trim().ToLowerInvariant();
                     foreach (var description in entry.Value.OriginalDescriptions)
                         if (Loca.UpgradeDescriptionDictionary.TryGetValue(description.Key, out var dict))
@@ -122,7 +119,7 @@ namespace RCM_Randomizer
                 catch { }
             }
             Applied.Clear();
-            ScaledChanges.Clear();
+            ChangeScaleLedger.Restore("upgrade"); // values: each asset back to its true original, exactly once
         }
 
         static float RangeFor(Rarity rarity)

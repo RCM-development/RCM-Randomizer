@@ -21,7 +21,7 @@ namespace RCM_Randomizer
                 "cost0", "cost", "build0", "build", "cap",
                 "hp0", "hp", "shield", "armor0", "armor",
                 "dmg0", "dmg", "cd0", "cd", "range0", "range", "splash", "barrels",
-                "dps0", "dps", "speed", "sight", "mana", "skillCost", "income" }));
+                "dps0", "dps", "speed", "sight", "mana", "skillCost", "income", "cap0", "unitCap" }));
             foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
             {
                 // Titans are measured even while locked: they are the content most likely to be mispriced
@@ -57,12 +57,198 @@ namespace RCM_Randomizer
                         F(EntityBalancingStore.EffectRadius1(unit)), barrels0 + ">" + barrels,
                         F(dps0), F(dps), F(EntityBalancingStore.MoveSpeed(unit)), F(EntityBalancingStore.SightRadius(unit)),
                         F(EntityBalancingStore.MaxMana(unit)), F(EntityBalancingStore.SkillManaCost(unit)),
-                        F(EntityBalancingStore.GainCreditsAmount(unit)) }));
+                        F(EntityBalancingStore.GainCreditsAmount(unit)), EntityBalancingStore.MaxCapacity(card, true).ToString(),
+                        // units a factory keeps alive come from the UNIT's row (UnitCap.MaxPlayerCapacity); the
+                        // card's own capacity is how many of the building may be placed
+                        EntityBalancingStore.MaxCapacity(unit).ToString() }));
                 }
                 catch (Exception e) { sb.AppendLine(row.entityId + "\tFAILED\t" + e.Message); }
             }
             File.WriteAllText(path, sb.ToString());
             WriteChanges(Path.ChangeExtension(path, null) + "Changes.txt");
+            WriteDonorConditions(Path.ChangeExtension(path, null) + "Conditions.txt", donorOf);
+            WriteCardEffects(Path.ChangeExtension(path, null) + "Effects.tsv");
+            WriteIncome(Path.ChangeExtension(path, null) + "Income.txt");
+            WriteStatUse(Path.ChangeExtension(path, null) + "StatUse.tsv");
+            WriteRolledTexts(Path.ChangeExtension(path, null) + "Texts.txt");
+        }
+
+        // Rolled vanilla hacks and upgrades rewrite every number in their description by the roll's
+        // factor. That is only honest where each number IS one of the scaled change values - so the
+        // text before and after, the factor, and each change with its value before and after and the
+        // identity of the change asset (shared assets are scaled once, by whichever card came first).
+        static void WriteRolledTexts(string path)
+        {
+            var sb = new StringBuilder();
+            void Card(string kind, string id, float factor, System.Collections.Generic.List<float> originals, string before, string after,
+                      System.Collections.Generic.List<CardChangeScriptableObject> changes)
+            {
+                sb.AppendLine($"{kind}\t{id}\tfactor={F(factor)}");
+                sb.AppendLine("  before: " + (before ?? "").Replace("\n", " "));
+                sb.AppendLine("  after:  " + (after ?? "").Replace("\n", " "));
+                for (int i = 0; changes != null && i < changes.Count; i++)
+                {
+                    var c = changes[i];
+                    if (c == null) continue;
+                    float o = originals != null && i < originals.Count ? originals[i] : float.NaN;
+                    sb.AppendLine($"  change {c.valueToChange} {c.operation} {F(o)} -> {F(c.value)} asset#{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(c)}");
+                }
+            }
+            foreach (var r in RelicRolls.Report())
+                try { Card("hack", r.id, r.factor, r.originals, r.before, r.after, RelicBalancingStore.ScriptableObject(r.id)?.cardChanges); } catch (Exception e) { sb.AppendLine("hack " + r.id + " FAILED " + e.Message); }
+            foreach (var u in UpgradeRolls.Report())
+                try { Card("upgrade", u.id, u.factor, u.originals, u.before, u.after, UpgradeBalancingStore.ScriptableObject(u.id)?.cardChanges); } catch (Exception e) { sb.AppendLine("upgrade " + u.id + " FAILED " + e.Message); }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // A roll only needs the stat to be above zero in the row, and a row carries numbers its prefab
+        // never reads - a mana pool on a unit with no skill and no mana-driven event. Which stats a
+        // prefab reads is spread over dozens of enum fields (condition subjects, identifier radii,
+        // value sources, calculation parameters), so every enum value reachable from its events and
+        // identifiers is collected and the audit matches the rolled stat against that set.
+        static void WriteStatUse(string path)
+        {
+            var sb = new StringBuilder("entity\thasActiveSkill\ttokens\tname\tlevel\tdamage1\theal1\tduration1\tduration2\tforAi\tblueprint\tfactory\tproduces\tupgradesCopyTo\n");
+            var done = new System.Collections.Generic.HashSet<string>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (row.inactive || string.IsNullOrEmpty(row.prefabLocation) || !done.Add(row.entityId)) continue;
+                try
+                {
+                    if (!StatUse.TryTokens(row.entityId, out bool activeSkill, out var found)) continue;
+                    var tokens = new System.Collections.Generic.SortedSet<string>(found, StringComparer.Ordinal);
+                    sb.Append(row.entityId).Append('\t').Append(activeSkill).Append('\t').Append(string.Join(",", tokens))
+                      .Append('\t').Append(MixedUnitPresentation.BaseName(row.entityId)).Append('\t').Append(row.neededExperienceLevel)
+                      .Append('\t').Append(F(row.damage1)).Append('\t').Append(F(row.healAmount1))
+                      .Append('\t').Append(F(row.duration1)).Append('\t').Append(F(row.duration2))
+                      .Append('\t').Append(row.isAllowedForAi).Append('\t').Append(row.isAllowedAsBlueprint)
+                      .Append('\t').Append(EntityBalancingStore.FactoryEntityId(row.entityId) ?? "-")
+                      .Append('\t').Append(row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : "-")
+                      .Append('\t').AppendLine(row.copyUpgradesToEntityId.hasValue ? row.copyUpgradesToEntityId.value : "-");
+                }
+                catch (Exception e) { sb.AppendLine(row.entityId + "\tFAILED\t" + e.Message); }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // Every percentage every active hack and upgrade applies, vanilla and generated side by side:
+        // "is +100 percent turret fire rate in band" is a question about what the game's own cards do,
+        // and this is the answer to it. kind | id | generated | level | coins | stat | op | value | roles
+        static void WriteCardEffects(string path)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("kind\tid\tgenerated\tlevel\tcoins\tstat\top\tvalue\troles\tside");
+            try
+            {
+                foreach (var row in RelicBalancingStore._relicBalancingScriptableObject.parameters)
+                {
+                    if (row.inactive || row.isForSpecialists || row.scriptableObject == null || row.scriptableObject.cardChanges == null) continue;
+                    foreach (var c in row.scriptableObject.cardChanges)
+                        if (c != null)
+                            sb.AppendLine($"hack\t{row.relicId}\t{GeneratedHacks.IsGenerated(row.relicId)}\t{row.neededExperienceLevel}\t{row.coinsAmount}\t{c.valueToChange}\t{c.operation}\t{F(c.value)}\t{c.cardMustHaveOneOfTheseRoles}\t{c.side}");
+                }
+            }
+            catch (Exception e) { sb.AppendLine("hacks FAILED " + e.Message); }
+            try
+            {
+                foreach (var row in UpgradeBalancingStore._upgradeBalancingScriptableObject.parameters)
+                {
+                    if (row.inactive || row.isForSpecialists || row.scriptableObject == null || row.scriptableObject.cardChanges == null) continue;
+                    foreach (var c in row.scriptableObject.cardChanges)
+                        if (c != null)
+                            sb.AppendLine($"upgrade\t{row.upgradeId}\t{GeneratedUpgrades.IsGenerated(row.upgradeId)}\t{row.neededExperienceLevel}\t{row.coinsAmount}\t{c.valueToChange}\t{c.operation}\t{F(c.value)}\t{c.cardMustHaveOneOfTheseRoles}\t{c.side}");
+                }
+            }
+            catch (Exception e) { sb.AppendLine("upgrades FAILED " + e.Message); }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // What the economy buildings actually pay: the vanilla ones carry their income inside a
+        // GainCredits action, not in a stat column, so a comparison needs the action's own numbers.
+        static void WriteIncome(string path)
+        {
+            var sb = new StringBuilder();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (!row.isAllowedAsBlueprint || row.inactive || (row.roles & UnitRole.Refinery) == 0) continue;
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(row.prefabLocation ?? "") as UnityEngine.GameObject;
+                    var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                    sb.AppendLine($"{row.entityId}\tcost={row.cost}\tgainCreditsAmount={F(row.gainCreditsAmount)}\tmaxArmor={F(row.maxArmor)}");
+                    if (controller?.events != null) IncomeEvents(sb, controller.events, "    ", 0);
+                }
+                catch (Exception e) { sb.AppendLine("    FAILED " + e.Message); }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // A refund (the Reclaimer's) is a mod the building puts on OTHER units, whose OnWillBeDestroyed
+        // pays - so the mods an event adds are followed too, one level of nesting per mod.
+        static void IncomeEvents(StringBuilder sb, System.Collections.Generic.IEnumerable<EntityEvent> events, string indent, int depth)
+        {
+            foreach (var ev in events)
+            {
+                if (ev == null) continue;
+                var all = new System.Collections.Generic.List<IEntityAction>(ev.actions ?? new System.Collections.Generic.List<IEntityAction>());
+                if (ev.conditionalActions != null) foreach (var ca in ev.conditionalActions) if (ca?.actions != null) all.AddRange(ca.actions);
+                foreach (var a in all)
+                {
+                    if (a is GainCredits g)
+                        sb.AppendLine($"{indent}{ev.@event}: GainCredits amount={g.creditAmount} x{F(g.multiplier)} receiver={g.creditReceiver} on={g.operatingEntities} ident={g.entityIdentifierWithTargetAsOrigin}");
+                    else if (a is AddEntityMod m && m.entityMod != null && depth < 3)
+                    {
+                        sb.AppendLine($"{indent}{ev.@event}: AddEntityMod {m.entityMod.name} on={m.operatingEntities} ident={m.entityIdentifierWithTargetAsOrigin}");
+                        if (m.entityMod.events != null) IncomeEvents(sb, m.entityMod.events, indent + "    ", depth + 1);
+                    }
+                }
+            }
+        }
+
+        // A donor's weapon travels as its five firing events, and the weapon audit assumed that any
+        // condition inside them passes. A condition on the FIRING UNIT's own state - a behaviour status,
+        // a flag, a stored value - is set by the donor's other events (OnStart, OnEachSecond), which do
+        // not travel. On a host that never sets it, the gated action never runs. Written for every donor
+        // actually in the map, with the fields that decide whether a host can ever satisfy it.
+        static readonly EntityController.Event[] Copied =
+        {
+            EntityController.Event.OnReadyToShoot, EntityController.Event.OnHasShot, EntityController.Event.OnAttackHitTarget,
+            EntityController.Event.OnAttackMissedTarget, EntityController.Event.OnAttackWarmUpStarted,
+        };
+
+        static void WriteDonorConditions(string path, Func<string, string> donorOf)
+        {
+            var donors = new System.Collections.Generic.SortedSet<string>(StringComparer.Ordinal);
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string unit = row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : row.entityId;
+                string donor = donorOf != null ? donorOf(unit) : null;
+                if (!string.IsNullOrEmpty(donor)) donors.Add(donor);
+            }
+            var sb = new StringBuilder();
+            foreach (string donor in donors)
+            {
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(donor)) as UnityEngine.GameObject;
+                    var controller = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                    if (controller == null || controller.events == null) continue;
+                    foreach (var ev in controller.events)
+                    {
+                        if (ev == null || Array.IndexOf(Copied, ev.@event) < 0 || ev.conditionalActions == null) continue;
+                        foreach (var conditional in ev.conditionalActions)
+                        {
+                            if (conditional?.eventConditions == null) continue;
+                            string actions = string.Join(",", conditional.actions.Select(a => a?.GetType().Name ?? "null"));
+                            foreach (var c in conditional.eventConditions)
+                                sb.AppendLine($"{donor}\t{ev.@event}\t{c.type}\tentity={c.entity}\tstatus={c.behaviourStatus}\top={c.roleOperation}"
+                                    + $"\tbool={c.entityBoolSubject}\tint={c.intSubject}\tfloat={c.entityFloatSubject}\t-> {actions}");
+                        }
+                    }
+                }
+                catch (Exception e) { sb.AppendLine(donor + "\tFAILED\t" + e.Message); }
+            }
+            File.WriteAllText(path, sb.ToString());
         }
 
         // Every card change aimed at a unit by id, with where it came from. An effective number that

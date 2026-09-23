@@ -30,6 +30,9 @@ namespace RCM_Randomizer
 
         public static bool IsGenerated(string entityId) => entityId != null && entityId.StartsWith(Prefix, StringComparison.Ordinal);
 
+        // the player's own copy of each salvaged enemy unit (the card's product) - see PlayerCopies
+        public const string UnitPrefix = "rcmgen_salvunit_";
+
         public static void Apply(int seed)
         {
             Deactivate();
@@ -81,10 +84,24 @@ namespace RCM_Randomizer
                 // the closest player factory by what it produces, so the card's build time and
                 // capacity are those of a comparable unit rather than an arbitrary one
                 var card = templates.OrderBy(t => Math.Abs(CostOfProduct(list, t) - unit.cost)).First();
-                string cardId = Prefix + n;
+                string cardId = Prefix + n, unitId = UnitPrefix + n, enemyId = unit.entityId;
+                string unitName = NameOf(enemyId);
+
+                // The player builds their OWN copy of the unit, not the enemy's id (PlayerCopies has the
+                // why): on the enemy's id no player hack or upgrade reached it, an upgrade assigned to it
+                // went to the enemy's id and a factory upgrade to the enemy's factory.
+                var own = PlayerCopies.Copy(unit, unitId);
+                own.isAllowedAsBlueprint = false;
+                PlayerCopies.Write(own);
+                EntityBalancingStore.FactoryEntityIdOf[unitId] = cardId;
+                string enemyText = null;
+                try { enemyText = Loca.BlueprintDescription(enemyId); } catch { }
+                PlayerCopies.SetLoca(unitId, unitName, string.IsNullOrEmpty(enemyText) || enemyText == enemyId
+                    ? "Salvaged from the enemy's roster and rebuilt in your own foundry." : enemyText);
+
                 card.entityId = cardId;
-                card.factoryForEntityId = new NullableString { hasValue = true, value = unit.entityId };
-                card.cost = PriceAgainstRoster(unit, Math.Max(1, card.maxCapacity), rosterValue);
+                card.factoryForEntityId = new NullableString { hasValue = true, value = unitId };
+                card.cost = PriceAgainstRoster(unit, Math.Max(1, unit.maxCapacity), rosterValue);
                 card.coinsAmount = Math.Max(1, (int)(card.coinsAmount * 1.5f));
                 card.rarity = Rarity.UltraRare;
                 card.neededExperienceLevel = FirstLevel + n * LevelStep;
@@ -94,11 +111,8 @@ namespace RCM_Randomizer
                 card.inactive = false;
 
                 Write(card);
-                // the reverse map (unit -> factory) is left alone: it still points at the enemy's own
-                // factory, and the card only needs the forward direction to build
-                Products.Add(unit.entityId);
+                Products.Add(unitId);
 
-                string unitName = NameOf(unit.entityId);
                 SetLoca(cardId, "Salvaged " + unitName,
                     "Salvage: build the enemy's own " + unitName + ". Reverse-engineered, expensive, and never part of the standard roster.");
                 names.Add(unitName + " (L" + card.neededExperienceLevel + ", " + card.cost + "c)");
@@ -109,9 +123,8 @@ namespace RCM_Randomizer
 
         // Priced against the player's own roster, not the enemy's table cost. An enemy unit's nominal
         // cost says nothing about what it is worth in a player's hands: measured as sqrt(dps x hp) x
-        // capacity per crystal (a factory keeps maxCapacity units alive for its one price), 2.5x that
-        // cost put the PCX Siege Tower and Turbine Mech near the roster's top 5 percent and the Seeker
-        // and CF4 Sniper below its median. The roster is measured at apply time and each card priced to
+        // units-per-factory per crystal (UnitCap: factories x the UNIT's maxCapacity), 2.5x that cost
+        // bore no relation to what the card fields. The roster is measured at apply time and each card priced to
         // sit at RosterQuantile of it: strong for its price, not the best buy in the deck.
         const double RosterQuantile = 0.75;
 
@@ -125,8 +138,9 @@ namespace RCM_Randomizer
                 if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(card.factoryForEntityId.value, out int index)) continue;
                 var product = list[index];
                 double power = Power(product);
-                // a factory keeps maxCapacity units alive for its one price: power per crystal scales with it
-                if (power > 0) values.Add(power * Math.Max(1, card.maxCapacity) / card.cost);
+                // each factory keeps the PRODUCT's maxCapacity units alive (UnitCap.MaxPlayerCapacity is factories x
+                // MaxCapacity(product)); the factory row's own capacity only limits how many factories fit
+                if (power > 0) values.Add(power * Math.Max(1, product.maxCapacity) / card.cost);
             }
             if (values.Count == 0) return 0f;
             values.Sort();
@@ -143,7 +157,9 @@ namespace RCM_Randomizer
         {
             double power = Power(unit) * capacity;
             if (rosterValue <= 0f || power <= 0) return Math.Max(250, (int)(Worth(unit) * 2.5f));   // nothing to measure against
-            return Math.Max(250, (int)Math.Round(power / rosterValue / 10.0) * 10);
+            // a floor well under any real unit's fair price: at 250 it overrode the roster for weak units
+            // (a CF4 Sniper worth ~175 sat 30 percent over the line)
+            return Math.Max(100, (int)Math.Round(power / rosterValue / 10.0) * 10);
         }
         // Enemy units carry no price of their own (the AI spawns them), so what a card for one is
         // worth is read off what it fields: sustained damage and how much of it survives.
@@ -198,6 +214,7 @@ namespace RCM_Randomizer
 
         public static void Deactivate()
         {
+            PlayerCopies.Deactivate(UnitPrefix);
             var list = EntityBalancingStore.EntityBalancingParametersList;
             foreach (var entry in AppendedRows)
             {

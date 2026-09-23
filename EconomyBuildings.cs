@@ -88,7 +88,13 @@ namespace RCM_Randomizer
                 row.coinsAmount = Math.Max(1, (int)(row.coinsAmount * (1f + spec.Level / 40f)));
                 row.neededExperienceLevel = spec.Level;
                 row.rarity = spec.Level >= 30 ? Rarity.Rare : Rarity.Common;
-                row.gainCreditsAmount = 0f;      // the template's own flat income stays with the template
+                row.gainCreditsAmount = 0f;
+                // The template's own income is NOT that column: the Dust Catcher prefab pays
+                // `OnEachSecond -> GainCredits amount=MaxArmor` (MaxArmor is the income/harvest rate field
+                // in this game), its row has maxArmor 2, and the event comes with the prefab. Every building
+                // here was therefore a full Dust Catcher - +2 crystals a second - with its own mechanic on
+                // top. Zeroed, so the building earns exactly what its description says.
+                row.maxArmor = 0f;
                 row.maxHealth = (int)(row.maxHealth * (1f + spec.Level / 60f));
                 row.cardModelScalingFactor *= spec.Scale;
                 if (!spec.Harvests) row.roles &= ~UnitRole.Harvester;

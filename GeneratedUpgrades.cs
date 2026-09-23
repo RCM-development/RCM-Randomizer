@@ -290,9 +290,18 @@ namespace RCM_Randomizer
                              + DescribePart(nerf.word, nerfMult, nerf.lowerIsBetter) + ".";
         }
 
-        // -50 percent cooldown or cost is a doubling, not a 50 percent buff: keep those at 35
+        // -50 percent cooldown or cost is a doubling, not a 50 percent buff: keep those at 35.
+        // And no single effect larger than the largest the game itself ships: measured over every active
+        // vanilla hack and upgrade, the biggest one change is +57 percent (Focused Blast's damage). The
+        // Mk II boost had no ceiling on higher-is-better stats and produced "+71 percent Range".
+        public const float VanillaMaxEffect = 0.57f;
+        // The same ceiling for a lower-is-better stat, as the equal-sized step down: x1/1.57 = -36%.
+        // The boosted cards still allowed -50%, which the audit found as "every card costs x0.52" and
+        // "turrets fire twice as fast" - the best vanilla cost card is x0.70, the best reload x0.80.
+        public const float VanillaMaxReduction = 1f - 1f / (1f + VanillaMaxEffect);
+        public static float Cap(bool lowerIsBetter, float pct) => Math.Min(pct, lowerIsBetter ? VanillaMaxReduction : VanillaMaxEffect);
         static float CapBuff((EntityBalancingStore.ChangeableValue value, string word, bool lowerIsBetter) stat, float pct)
-            => stat.lowerIsBetter ? Math.Min(pct, _boost > 1f ? 0.5f : 0.35f) : pct;
+            => Cap(stat.lowerIsBetter, pct);
 
         // log-power a buff is worth, always positive
         static float BuffPower((EntityBalancingStore.ChangeableValue value, string word, bool lowerIsBetter) stat, float mult)

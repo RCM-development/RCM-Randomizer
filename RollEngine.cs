@@ -499,14 +499,41 @@ namespace RCM_Randomizer
         // with a bare ToString(): a rolled 2 -> 1.785235 showed up exactly like that next to the
         // health bar. So a roll on such a stat is snapped until the RESULT is whole; when that lands
         // back on the original value, the multiplier is 1 and the caller drops the roll.
+        //
+        // Capacity is the same kind of number, and the game rounds it to the nearest whole unit
+        // (MathHelper.RoundToInt). A +/-15 percent roll on a factory holding 2 or 3 units rounds straight
+        // back to 2 or 3: the audit found 60 of 84 capacity rolls changing nothing in play while still
+        // being priced into the card and taking up one of its roll slots, and the rest landing somewhere
+        // other than what was paid for (x1.15 on 6 is 7, +16.7 percent). Snapped the same way.
+        //
+        // A mobile harvester's income stat is its carry LOAD, and Harvest.Update takes it as
+        // (int)GainCreditsAmount - truncated, not rounded. On the load of 10 every harvester has, a
+        // +7.5 percent roll truncated back to 10 (paid for, did nothing) and a -2 percent roll to 9 (a
+        // tenth of every trip, priced as a fiftieth). Snapped too, and placed a hair above the whole
+        // number so float error cannot truncate it one lower. Buildings pay income through GainCredits
+        // as a float and are left alone.
         public static float SnapToWholeResult(string entityId, EntityBalancingStore.ChangeableValue value, float multiplier)
         {
-            if (value != EntityBalancingStore.ChangeableValue.ArmorProtection) return multiplier;
+            bool harvesterLoad = false;
+            if (value == EntityBalancingStore.ChangeableValue.GainCreditsAmount)
+            {
+                try { harvesterLoad = EntityBalancingStore.HasRole(entityId, UnitRole.Harvester) && !EntityBalancingStore.IsBuilding(entityId); }
+                catch { harvesterLoad = false; }
+            }
+            if (value != EntityBalancingStore.ChangeableValue.ArmorProtection && value != EntityBalancingStore.ChangeableValue.MaxCapacity && !harvesterLoad) return multiplier;
             try
             {
-                float original = EntityBalancingStore.ArmorProtection(entityId, returnOriginalValueFromBalancingFile: true);
+                float original = value == EntityBalancingStore.ChangeableValue.MaxCapacity
+                    ? EntityBalancingStore.MaxCapacity(entityId, returnOriginalValueFromBalancingFile: true)
+                    : harvesterLoad ? EntityBalancingStore.GainCreditsAmount(entityId, returnOriginalValueFromBalancingFile: true)
+                    : EntityBalancingStore.ArmorProtection(entityId, returnOriginalValueFromBalancingFile: true);
+                if (harvesterLoad && original > 0f)
+                {
+                    float whole = Math.Max(1f, (float)Math.Round(original * multiplier, MidpointRounding.AwayFromZero));
+                    return Math.Abs(whole - original) < 0.5f ? 1f : (whole + 0.01f) / original;
+                }
                 if (original <= 0f) return 1f;
-                float snapped = (float)Math.Round(original * multiplier);
+                float snapped = (float)Math.Round(original * multiplier, MidpointRounding.AwayFromZero); // as the game rounds
                 if (snapped < 1f) snapped = 1f;
                 return snapped / original;
             }
@@ -610,6 +637,9 @@ namespace RCM_Randomizer
                 if (spec.Value == EntityBalancingStore.ChangeableValue.MaxArmor
                     && !EntityBalancingStore.HasRole(entityId, UnitRole.Harvester)) return false;
                 if (!EntityBalancingStore.IsValueHigherThanZero(entityId, spec.Value, useOriginalValue: true)) return false;
+                // above zero is not the same as used: every drop row has duration1 30 and most never
+                // read it, so the roll would reprice the card for a number nothing looks at
+                if (!StatUse.Reads(entityId, spec.Value)) return false;
                 if (spec.RequiresPrimaryDamage &&
                     !EntityBalancingStore.IsValueHigherThanZero(entityId, EntityBalancingStore.ChangeableValue.Damage1, useOriginalValue: true)) return false;
                 if (spec.RequiresSecondaryDamage &&

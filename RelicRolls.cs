@@ -18,10 +18,28 @@ namespace RCM_Randomizer
             public float Factor;
             public List<float> OriginalValues;
             public Dictionary<string, string> OriginalDescriptions = new Dictionary<string, string>();
+            public Dictionary<string, string> Written = new Dictionary<string, string>();
+            public List<RollText.Change> Changes;
         }
 
         static readonly Dictionary<string, SavedRelic> Applied = new Dictionary<string, SavedRelic>();
-        static readonly HashSet<CardChangeScriptableObject> ScaledChanges = new HashSet<CardChangeScriptableObject>();
+
+        // for the probe: every rolled card with its factor, the change values it had before, and its
+        // description before and after (the English one when present)
+        public static IEnumerable<(string id, float factor, List<float> originals, string before, string after)> Report()
+        {
+            foreach (var entry in Applied)
+            {
+                string key = entry.Key.Trim().ToLowerInvariant(), before = null, after = null;
+                foreach (var language in entry.Value.OriginalDescriptions)
+                {
+                    before = language.Value;
+                    if (Loca.RelicDescriptionDictionary.TryGetValue(language.Key, out var dict)) dict.TryGetValue(key, out after);
+                    if (language.Key.IndexOf("en", StringComparison.OrdinalIgnoreCase) >= 0) break;
+                }
+                yield return (entry.Key, entry.Value.Factor, entry.Value.OriginalValues, before, after);
+            }
+        }
 
         public static void Apply(int seed, float intensity, float luck)
         {
@@ -50,20 +68,13 @@ namespace RCM_Randomizer
             double u = rand.NextDouble() * 2.0 - 1.0 + Math.Min(0.6f, 0.25f * luck);
             if (u > 1.0) u = 1.0;
             float factor = (float)Math.Exp(u * logMax);
-            if (Math.Abs(factor - 1f) < 0.04f) return false;
+            // an asset another card (an upgrade, or another hack) already scaled sets the factor
+            if (!ChangeScaleLedger.TryAdopt(relic.cardChanges, out float adopted) && Math.Abs(factor - 1f) < 0.04f) return false;
+            if (Math.Abs(adopted - 1f) > 0.0001f) factor = adopted;
 
-            var saved = new SavedRelic { Factor = factor, OriginalValues = relic.cardChanges.Select(c => c != null ? c.value : 0f).ToList() };
-            bool scaledAny = false;
-            foreach (var change in relic.cardChanges)
-            {
-                if (change == null || !ScaledChanges.Add(change)) continue;
-                if (change.operation == CardChangeScriptableObject.Operation.Multiply)
-                    change.value = 1f + (change.value - 1f) * factor;
-                else
-                    change.value *= factor;
-                scaledAny = true;
-            }
-            if (!scaledAny) return false;
+            var saved = new SavedRelic { Factor = factor, OriginalValues = relic.cardChanges.Select(ChangeScaleLedger.OriginalOf).ToList() };
+            foreach (var change in relic.cardChanges) ChangeScaleLedger.Scale(change, factor, "hack");
+            saved.Changes = RollText.Of(relic.cardChanges);
 
             RewriteDescription(relicId, factor, saved);
             Applied[relicId] = saved;
@@ -77,18 +88,11 @@ namespace RCM_Randomizer
             foreach (var language in Loca.RelicDescriptionDictionary)
             {
                 if (!language.Value.TryGetValue(key, out string text)) continue;
+                // still our own text (no localization reload since): rewriting it again would re-match its new numbers
+                if (saved.Written.TryGetValue(language.Key, out string written) && written == text) continue;
                 if (!saved.OriginalDescriptions.ContainsKey(language.Key)) saved.OriginalDescriptions[language.Key] = text;
-                language.Value[key] = Regex.Replace(text, @"\d+(?:[.,]\d+)?", match => ScaleNumberToken(match.Value, factor));
+                language.Value[key] = saved.Written[language.Key] = RollText.Rewrite(text, saved.Changes);
             }
-        }
-
-        static string ScaleNumberToken(string token, float factor)
-        {
-            if (!float.TryParse(token.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float value)) return token;
-            float scaled = value * factor;
-            bool wasInteger = token.IndexOf('.') < 0 && token.IndexOf(',') < 0;
-            if (wasInteger) return Math.Max(1, (int)Math.Round(scaled)).ToString(CultureInfo.InvariantCulture);
-            return scaled.ToString("0.#", CultureInfo.InvariantCulture);
         }
 
         public static void ReapplyDescriptions()
@@ -105,11 +109,6 @@ namespace RCM_Randomizer
             {
                 try
                 {
-                    var relic = RelicBalancingStore.ScriptableObject(entry.Key);
-                    if (relic?.cardChanges != null)
-                        for (int i = 0; i < relic.cardChanges.Count && i < entry.Value.OriginalValues.Count; i++)
-                            if (relic.cardChanges[i] != null) relic.cardChanges[i].value = entry.Value.OriginalValues[i];
-
                     string key = entry.Key.Trim().ToLowerInvariant();
                     foreach (var description in entry.Value.OriginalDescriptions)
                         if (Loca.RelicDescriptionDictionary.TryGetValue(description.Key, out var dict))
@@ -118,7 +117,7 @@ namespace RCM_Randomizer
                 catch { }
             }
             Applied.Clear();
-            ScaledChanges.Clear();
+            ChangeScaleLedger.Restore("hack"); // values: each asset back to its true original, exactly once
         }
 
         static float RangeFor(Rarity rarity)

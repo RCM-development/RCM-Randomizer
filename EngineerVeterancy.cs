@@ -160,23 +160,46 @@ namespace RCM_Randomizer
         }
 
         // Seeded by run and rank, so a run hands out the same career hacks however it is played.
-        // Bronze draws a Common hack, silver a Rare, gold an UltraRare, each falling back a tier.
+        //
+        // Graded by LEVEL, not rarity. This drew Common for bronze, Rare for silver and UltraRare for
+        // gold - but every one of the game's hacks is Common (and the generated ones are too), so the
+        // Rare and UltraRare pools are empty and every rank fell back to the same Common draw: gold paid
+        // exactly what bronze did. The level a hack unlocks at is how the game itself grades hacks, so
+        // bronze draws from every hack the player has unlocked, silver from the upper half of that list
+        // by level, gold from its top quarter.
+        //
+        // And only hacks the deck can use: "Stronger Melee" was handed to a deck whose melee units had
+        // all been rearmed. The game's own card offers skip a hack whose needed system tags the deck
+        // lacks; the career now does the same.
         static string PickHack(int runSeed, int rank)
         {
-            var order = rank >= 3 ? new[] { Rarity.UltraRare, Rarity.Rare, Rarity.Common }
-                      : rank == 2 ? new[] { Rarity.Rare, Rarity.Common }
-                      : new[] { Rarity.Common, Rarity.Rare };
             int level = MetaGame.Instance != null ? MetaGame.Instance.CurrentExperienceLevel : 0;
-            foreach (var rarity in order)
+            var pool = new List<string>();
+            foreach (var rarity in new[] { Rarity.Common, Rarity.Rare, Rarity.UltraRare })
             {
-                List<string> pool;
-                try { pool = RelicBalancingStore.AllActiveRelicIds(rarity, false, GameBalancingStore.IsDemo, Tech.All, level); }
-                catch { continue; }
-                pool = pool.Where(id => !Game.Relics.Contains(id)).OrderBy(id => id, StringComparer.Ordinal).ToList();
-                if (pool.Count == 0) continue;
-                return pool[new System.Random(runSeed ^ RollEngine.Fnv1a("engineerhack:" + rank)).Next(pool.Count)];
+                try { pool.AddRange(RelicBalancingStore.AllActiveRelicIds(rarity, false, GameBalancingStore.IsDemo, Tech.All, level)); }
+                catch { }
             }
-            return null;
+            pool = pool.Distinct()
+                       .Where(id => !Game.Relics.Contains(id) && UsableByDeck(id))
+                       .OrderBy(id => RelicBalancingStore.NeededExperienceLevel(id))
+                       .ThenBy(id => id, StringComparer.Ordinal)
+                       .ToList();
+            if (pool.Count == 0) return null;
+            double from = rank >= 3 ? 0.75 : rank == 2 ? 0.5 : 0.0;
+            int start = Math.Min(pool.Count - 1, (int)(pool.Count * from));
+            var band = pool.Skip(start).ToList();
+            return band[new System.Random(runSeed ^ RollEngine.Fnv1a("engineerhack:" + rank)).Next(band.Count)];
+        }
+
+        static bool UsableByDeck(string relicId)
+        {
+            try
+            {
+                var tags = RelicBalancingStore.NeededSystemTags(relicId);
+                return tags == SystemTags.None || tags == SystemTags.All || Game.DeckHasOneOfTheseSystemTags(tags);
+            }
+            catch { return true; }
         }
 
         static string SafeName(string relicId)

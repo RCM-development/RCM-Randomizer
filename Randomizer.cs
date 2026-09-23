@@ -112,6 +112,7 @@ namespace RCM_Randomizer
             new Harmony(IDENTIFIER).PatchAll();
             RollEngine.SkillOptions = SkillInjector.Options;
             RollEngine.HasOwnSkill = PrefabHasActiveSkill;
+            StatUse.DonorOf = id => _donorMap != null && _donorMap.TryGetValue(id, out string d) ? d : null;
             StartCoroutine(MixedUnitPresentation.ProcessCaptureQueue());
             _mode = Config.Bind("General", "Mode", Mode.PerSave,
                 "Off = stock game. PerSave = rolled once per profile (reroll via UI). PerRun = fresh rolls from each run's Run ID.");
@@ -340,6 +341,7 @@ namespace RCM_Randomizer
                     GeneratedDrops.ReapplyLoca();
                     Titans.ReapplyLoca();
                     SalvagedTech.ReapplyLoca();
+                    PlayerCopies.ReapplyLoca();
                     EconomyBuildings.ReapplyLoca();
                     ApplyDropDescSuffixes();
                     if (_donorMap != null) { ArmedBrawlers.Restore(); MixedUnitPresentation.ApplyMixedNames(_donorMap); ArmedBrawlers.Apply(_donorMap); }
@@ -613,7 +615,7 @@ namespace RCM_Randomizer
             RestoreCapturedTech();
             UpgradeRolls.Restore();
             ArmedBrawlers.Restore();
-            SpecialistHacks.Restore(); // before RelicRolls.Restore, which writes values back by index
+            SpecialistHacks.Restore(); // puts the stock cardChanges lists back; RelicRolls restores values per asset through the ledger
             RelicRolls.Restore();
             GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
             GeneratedHacks.Deactivate();
@@ -735,7 +737,6 @@ namespace RCM_Randomizer
         // seed: Rare+ cards, real cost, and everything else (rolls, turret shuffle, weapon
         // pricing) applies its twist on top. Restored cleanly on mode change.
         readonly List<string> _capturedTechIds = new List<string>();
-        readonly Dictionary<string, EntityBalancingParameters> _capturedTechOriginals = new Dictionary<string, EntityBalancingParameters>();
 
         void ApplyCapturedTech(int seed)
         {
@@ -777,13 +778,37 @@ namespace RCM_Randomizer
                 candidates.Remove(pick);
                 if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(pick, out int index)) continue;
 
-                var parameters = EntityBalancingStore.EntityBalancingParametersList[index];
-                _capturedTechOriginals[pick] = parameters;
+                // a player-side copy, not the enemy's own row switched to a card: on the enemy's id no
+                // player hack or upgrade reaches the turret and the player's roll on it changes the
+                // enemy's turrets too (PlayerCopies)
+                string copyId = PlayerCopies.CapturedPrefix + n;
+                var parameters = PlayerCopies.Copy(EntityBalancingStore.EntityBalancingParametersList[index], copyId);
                 parameters.isAllowedAsBlueprint = true;
                 parameters.rarity = n == 0 ? Rarity.Rare : Rarity.UltraRare;
                 parameters.neededExperienceLevel = Progression.NeededExperienceLevelFor(Progression.TierOf(parameters.rarity, 0f));
-                EntityBalancingStore.EntityBalancingParametersList[index] = parameters;
-                _capturedTechIds.Add(pick);
+                // Most of these "turrets" are the enemy's spawner buildings (PCX Cloud Caller Factory,
+                // Launcher Dock): what they build needs a player copy too, or the captured building
+                // turns out the enemy's own unit, which no player card change reaches.
+                if (parameters.factoryForEntityId.hasValue
+                    && EntityBalancingStore.ParameterListIndexOf.TryGetValue(parameters.factoryForEntityId.value, out int productIndex))
+                {
+                    string productId = parameters.factoryForEntityId.value, productCopyId = copyId + "_unit";
+                    PlayerCopies.Write(PlayerCopies.Copy(EntityBalancingStore.EntityBalancingParametersList[productIndex], productCopyId));
+                    EntityBalancingStore.FactoryEntityIdOf[productCopyId] = copyId;
+                    parameters.factoryForEntityId = new NullableString { hasValue = true, value = productCopyId };
+                    string productName = MixedUnitPresentation.BaseName(productId) ?? Loca.BlueprintName(productId);
+                    string productText = null;
+                    try { productText = Loca.BlueprintDescription(productId); } catch { }
+                    PlayerCopies.SetLoca(productCopyId, string.IsNullOrEmpty(productName) ? productId : productName,
+                        string.IsNullOrEmpty(productText) || productText == productId ? "Built by a captured enemy structure." : productText);
+                }
+                PlayerCopies.Write(parameters);
+                string name = MixedUnitPresentation.BaseName(pick) ?? Loca.BlueprintName(pick);
+                string text = null;
+                try { text = Loca.BlueprintDescription(pick); } catch { }
+                PlayerCopies.SetLoca(copyId, "Captured " + (string.IsNullOrEmpty(name) ? pick : name),
+                    string.IsNullOrEmpty(text) || text == pick ? "The enemy's own turret, captured and rebuilt for your side." : text);
+                _capturedTechIds.Add(copyId);
             }
             if (_capturedTechIds.Count > 0)
                 RCMManager.Log("Randomizer: captured tech unlocked: " + string.Join(", ", _capturedTechIds));
@@ -791,12 +816,7 @@ namespace RCM_Randomizer
 
         void RestoreCapturedTech()
         {
-            foreach (var original in _capturedTechOriginals)
-            {
-                if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(original.Key, out int index)) continue;
-                EntityBalancingStore.EntityBalancingParametersList[index] = original.Value;
-            }
-            _capturedTechOriginals.Clear();
+            PlayerCopies.Deactivate(PlayerCopies.CapturedPrefix);
             _capturedTechIds.Clear();
         }
 

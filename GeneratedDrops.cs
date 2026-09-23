@@ -24,7 +24,10 @@ namespace RCM_Randomizer
         static readonly DonorTemplate[] Templates =
         {
             new DonorTemplate { DonorId = "DropLightningStrike", NameFormat = "Ion Lance", DescriptionFormat = "A recalibrated lightning strike: about {0} percent {1} damage than the standard pattern." },
-            new DonorTemplate { DonorId = "DropHeal", NameFormat = "Nano Surge", DescriptionFormat = "A retuned repair wave: about {0} percent {1} regeneration duration." },
+            // Not DropHeal: its regeneration runs on fixed numbers inside its own entity mod and reads
+            // nothing from the row, so a Heal Drop reskin was the stock drop at a higher price with a
+            // description that promised a change. Vampirism reads its duration (SelfDuration1).
+            new DonorTemplate { DonorId = "DropVampirism", NameFormat = "Nano Surge", DescriptionFormat = "A retuned lifesteal field, repair nanites feeding on the damage your units deal: about {0} percent {1} duration." },
             new DonorTemplate { DonorId = "DropShields", NameFormat = "Aegis Pulse", DescriptionFormat = "A modified shield charge: about {0} percent {1} shield duration." },
         };
 

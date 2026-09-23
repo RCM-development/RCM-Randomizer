@@ -143,8 +143,7 @@ namespace RCM_Randomizer
             if (shape == 1)
             {
                 var drawback = PickStat(rand, role.role, asDrawback: true, first.value);
-                float pct = (0.15f + (float)rand.NextDouble() * 0.20f) * boost; // 15..35%
-                if (first.lowerIsBetter) pct = Math.Min(pct, 0.5f);
+                float pct = GeneratedUpgrades.Cap(first.lowerIsBetter, (0.15f + (float)rand.NextDouble() * 0.20f) * boost); // 15..35%
                 float mult = first.lowerIsBetter ? 1f - pct : 1f + pct;
                 float buffPower = Math.Abs(RollEngine.WeightOf(first.value)) * (float)Math.Abs(Math.Log(mult));
                 float weight = Math.Max(0.05f, Math.Abs(RollEngine.WeightOf(drawback.value)));
@@ -160,8 +159,8 @@ namespace RCM_Randomizer
             else if (shape == 2)
             {
                 var second = PickStat(rand, role.role, asDrawback: false, first.value);
-                float pctA = (0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck))) * boost;
-                float pctB = (0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck))) * boost;
+                float pctA = GeneratedUpgrades.Cap(first.lowerIsBetter, (0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck))) * boost);
+                float pctB = GeneratedUpgrades.Cap(second.lowerIsBetter, (0.05f + (float)rand.NextDouble() * (0.08f + 0.04f * Math.Min(2f, luck))) * boost);
                 float multA = first.lowerIsBetter ? 1f - pctA : 1f + pctA, multB = second.lowerIsBetter ? 1f - pctB : 1f + pctB;
                 AddChange(row, first.value, multA, role.role);
                 AddChange(row, second.value, multB, role.role);
@@ -171,7 +170,7 @@ namespace RCM_Randomizer
             }
             else
             {
-                float pct = (0.06f + (float)rand.NextDouble() * (0.10f + 0.05f * Math.Min(2f, luck))) * boost;
+                float pct = GeneratedUpgrades.Cap(first.lowerIsBetter, (0.06f + (float)rand.NextDouble() * (0.10f + 0.05f * Math.Min(2f, luck))) * boost);
                 float mult = first.lowerIsBetter ? 1f - pct : 1f + pct;
                 AddChange(row, first.value, mult, role.role);
                 power = Math.Abs(RollEngine.WeightOf(first.value)) * pct;
