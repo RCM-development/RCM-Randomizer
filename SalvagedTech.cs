@@ -69,6 +69,7 @@ namespace RCM_Randomizer
             if (pool.Count == 0) TestMod.RCMManager.Log("Randomizer: salvage found no enemy unit to offer");
             if (pool.Count == 0) return;
 
+            float rosterValue = RosterValue(list, RosterQuantile);
             int poolSize = pool.Count;
             var rand = new Random(seed ^ RollEngine.Fnv1a("salvage"));
             var names = new List<string>();
@@ -83,8 +84,7 @@ namespace RCM_Randomizer
                 string cardId = Prefix + n;
                 card.entityId = cardId;
                 card.factoryForEntityId = new NullableString { hasValue = true, value = unit.entityId };
-                int worth = Worth(unit);
-                card.cost = Math.Max(250, (int)(worth * 2.5f));
+                card.cost = PriceAgainstRoster(unit, Math.Max(1, card.maxCapacity), rosterValue);
                 card.coinsAmount = Math.Max(1, (int)(card.coinsAmount * 1.5f));
                 card.rarity = Rarity.UltraRare;
                 card.neededExperienceLevel = FirstLevel + n * LevelStep;
@@ -101,12 +101,50 @@ namespace RCM_Randomizer
                 string unitName = NameOf(unit.entityId);
                 SetLoca(cardId, "Salvaged " + unitName,
                     "Salvage: build the enemy's own " + unitName + ". Reverse-engineered, expensive, and never part of the standard roster.");
-                names.Add(unitName + " (L" + card.neededExperienceLevel + ")");
+                names.Add(unitName + " (L" + card.neededExperienceLevel + ", " + card.cost + "c)");
             }
             if (names.Count > 0)
-                TestMod.RCMManager.Log("Randomizer: salvage cards (" + names.Count + " of " + poolSize + " enemy units that qualify) -> " + string.Join(", ", names));
+                TestMod.RCMManager.Log("Randomizer: salvage cards (" + names.Count + " of " + poolSize + " enemy units that qualify, priced at roster value " + rosterValue.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "/crystal) -> " + string.Join(", ", names));
         }
 
+        // Priced against the player's own roster, not the enemy's table cost. An enemy unit's nominal
+        // cost says nothing about what it is worth in a player's hands: measured as sqrt(dps x hp) x
+        // capacity per crystal (a factory keeps maxCapacity units alive for its one price), 2.5x that
+        // cost put the PCX Siege Tower and Turbine Mech near the roster's top 5 percent and the Seeker
+        // and CF4 Sniper below its median. The roster is measured at apply time and each card priced to
+        // sit at RosterQuantile of it: strong for its price, not the best buy in the deck.
+        const double RosterQuantile = 0.75;
+
+        static float RosterValue(List<EntityBalancingParameters> list, double quantile)
+        {
+            var values = new List<double>();
+            foreach (var card in list)
+            {
+                if (!card.isAllowedAsBlueprint || card.inactive || !card.factoryForEntityId.hasValue || card.cost <= 0) continue;
+                if (IsGenerated(card.entityId) || Titans.IsGenerated(card.entityId)) continue;
+                if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(card.factoryForEntityId.value, out int index)) continue;
+                var product = list[index];
+                double power = Power(product);
+                // a factory keeps maxCapacity units alive for its one price: power per crystal scales with it
+                if (power > 0) values.Add(power * Math.Max(1, card.maxCapacity) / card.cost);
+            }
+            if (values.Count == 0) return 0f;
+            values.Sort();
+            return (float)values[Math.Min(values.Count - 1, (int)(values.Count * quantile))];
+        }
+
+        static double Power(EntityBalancingParameters unit)
+        {
+            double dps = unit.attackCooldown > 0.01f ? unit.damage1 * Math.Max(1, unit.firePointCount) / unit.attackCooldown : 0;
+            return dps > 0 && unit.maxHealth > 0 ? Math.Sqrt(dps * unit.maxHealth) : 0;
+        }
+
+        static int PriceAgainstRoster(EntityBalancingParameters unit, int capacity, float rosterValue)
+        {
+            double power = Power(unit) * capacity;
+            if (rosterValue <= 0f || power <= 0) return Math.Max(250, (int)(Worth(unit) * 2.5f));   // nothing to measure against
+            return Math.Max(250, (int)Math.Round(power / rosterValue / 10.0) * 10);
+        }
         // Enemy units carry no price of their own (the AI spawns them), so what a card for one is
         // worth is read off what it fields: sustained damage and how much of it survives.
         static int Worth(EntityBalancingParameters unit)

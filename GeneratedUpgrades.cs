@@ -66,6 +66,8 @@ namespace RCM_Randomizer
         {
             "Risky Refit", "Volatile Cells", "Stripped Chassis", "Overtuned Servos", "Jury-Rigged Optics",
             "Black Market Chip", "Hot-Wired Reactor", "Unstable Alloy", "Cut Corners", "Redline Tuning",
+            "Stripped Armor", "Burnt Fuses", "Forced Induction", "Glass Cannon Kit", "Overdriven Motors",
+            "Scrapyard Weld", "Hollowed Frame", "Rushed Assembly", "Cracked Housing", "Hot Barrels",
         };
 
         static readonly string[] NamePool =
@@ -73,6 +75,8 @@ namespace RCM_Randomizer
             "Scavenged Parts", "Prototype Coils", "Field Mod",
             "Surplus Plating", "Refurbished Core", "Reinforced Struts", "Clean Install",
             "Precision Gears", "Salvage Frame", "Custom Firmware", "Tempered Housing", "Calibrated Sights",
+            "Field Kit", "Hardened Joints", "Spare Capacitors", "Tuned Actuators", "Balanced Load",
+            "Sealed Bearings", "Polished Rails", "Refined Coolant",
         };
 
         // appended registry rows this session: id -> index in the parameters list
@@ -141,6 +145,8 @@ namespace RCM_Randomizer
         static List<Spec> Generate(int seed, float luck, int count)
         {
             var specs = new List<Spec>();
+            UsedNames.Clear();
+            StatCoverage.Reset();
             for (int i = 0; i < count; i++)
             {
                 var rand = new System.Random(seed ^ Fnv1a("genup:" + i));
@@ -156,7 +162,7 @@ namespace RCM_Randomizer
                     default: GeneratePureBuff(spec, rand, luck); break;
                 }
                 // behaviour upgrades name themselves after the rule they add
-                if (spec.Name == null) spec.Name = NamePool[rand.Next(NamePool.Length)];
+                if (spec.Name == null) spec.Name = PickName(NamePool, rand);
                 specs.Add(spec);
             }
             // the advanced series: own seed stream, own ids, bigger numbers, levels above the track
@@ -177,7 +183,7 @@ namespace RCM_Randomizer
                     }
                 }
                 finally { _boost = 1f; }
-                if (spec.Name == null) spec.Name = NamePool[rand.Next(NamePool.Length)];
+                if (spec.Name == null) spec.Name = PickName(NamePool, rand);
                 spec.Name += " Mk II";
                 spec.Coins = (int)(spec.Coins * 1.8f);
                 specs.Add(spec);
@@ -188,19 +194,45 @@ namespace RCM_Randomizer
             // every Rare node. Generated upgrades are Common like the rest; power is carried by level
             // and price.
             foreach (var spec in specs) spec.Rarity = Rarity.Common;
-            // disambiguate duplicate names ("Field Mod II")
-            var used = new Dictionary<string, int>();
-            foreach (var spec in specs)
-            {
-                if (used.TryGetValue(spec.Name, out int n)) { used[spec.Name] = n + 1; spec.Name += " " + new string('I', n + 1); }
-                else used[spec.Name] = 1;
-            }
+            // Names are unique by construction (PickName). The old pass here appended a numeral to a
+            // repeated name AFTER " Mk II" had been added, which printed "Overtuned Servos Mk II II".
             return specs;
         }
+
+        // One name per card in the whole generated set - regular and Mk II series alike: two different
+        // cards under one name ("Backdoor Patch Mk II" twice) cannot be told apart in a shop. The draw
+        // still consumes exactly one random number, so every later roll of the seed stays where it was.
+        static readonly HashSet<string> UsedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        static string PickName(string[] pool, System.Random rand)
+        {
+            int start = rand.Next(pool.Length);
+            for (int i = 0; i < pool.Length; i++)
+            {
+                string candidate = pool[(start + i) % pool.Length];
+                if (UsedNames.Add(candidate)) return candidate;
+            }
+            return Claim(pool[start]);
+        }
+
+        static string Claim(string name)
+        {
+            if (UsedNames.Add(name)) return name;
+            for (int n = 2; ; n++)
+                if (UsedNames.Add(name + " " + Roman(n))) return name + " " + Roman(n);
+        }
+
+        static string Roman(int n) => n <= 3 ? new string('I', n) : n == 4 ? "IV" : n == 5 ? "V" : "V" + new string('I', n - 5);
 
         // Which stats a card may use. A DRAWBACK must bite on every unit the card reaches, or the
         // card is a free buff: splash, shield, MP and skill cost only exist on some units, so they
         // are buffs only. And nothing about movement belongs on a building or turret card.
+        //
+        // A BUFF has the mirror problem, and nothing checked it: a percentage of zero is zero. The
+        // audit found "Melee units only: +31 percent Splash Radius, but -23 percent Speed" (no melee
+        // unit has splash - the card is its drawback and nothing else) and "+14 percent shield" on
+        // buildings, of which one in ten has a shield. A buff now needs the stat on at least half of
+        // the cards it can reach, measured on the actual roster; a drawback needs it on nearly all.
+        const float BuffCoverage = 0.5f, DrawbackCoverage = 0.8f;
         static bool Usable((EntityBalancingStore.ChangeableValue value, string word, bool lowerIsBetter) stat, UnitRole role, bool asDrawback)
         {
             bool stationary = role == UnitRole.Building || role == UnitRole.Turret;
@@ -208,6 +240,7 @@ namespace RCM_Randomizer
             if (role == UnitRole.Melee && stat.value == EntityBalancingStore.ChangeableValue.WeaponRange) return false;
             // a reward for level 50+ has to be worth having: sight stays a drawback there, never the headline
             if (!asDrawback && _boost > 1f && stat.value == EntityBalancingStore.ChangeableValue.SightRadius) return false;
+            if (StatCoverage.Share(role, stat.value) < (asDrawback ? DrawbackCoverage : BuffCoverage)) return false;
             if (!asDrawback) return true;
             switch (stat.value)
             {
@@ -225,6 +258,10 @@ namespace RCM_Randomizer
             params EntityBalancingStore.ChangeableValue[] except)
         {
             var pool = StatPool.Where(s => Usable(s, role, asDrawback) && !except.Contains(s.value)).ToArray();
+            // a role so small that nothing qualifies (the melee group once rearmed brawlers leave it):
+            // health exists on every card, so the card still does something
+            if (pool.Length == 0) pool = StatPool.Where(s => s.value == EntityBalancingStore.ChangeableValue.MaxHealth && !except.Contains(s.value)).ToArray();
+            if (pool.Length == 0) pool = StatPool.Where(s => !except.Contains(s.value)).ToArray();
             return pool[rand.Next(pool.Length)];
         }
 
@@ -248,7 +285,7 @@ namespace RCM_Randomizer
             spec.Power = unpaid; // zero when the drawback pays in full: available from the start
             spec.Coins = 60 + rand.Next(40) + (int)(900 * unpaid);
             if (unpaid > 0.05f) spec.Rarity = Rarity.Rare;
-            spec.Name = TradeNames[rand.Next(TradeNames.Length)];
+            spec.Name = PickName(TradeNames, rand);
             spec.Description = DescribePart(buff.word, buffMult, buff.lowerIsBetter) + ", but "
                              + DescribePart(nerf.word, nerfMult, nerf.lowerIsBetter) + ".";
         }
@@ -292,7 +329,7 @@ namespace RCM_Randomizer
             spec.Rarity = Rarity.Rare;
             spec.Power = unpaid;
             spec.Coins = 110 + rand.Next(60) + (int)(900 * unpaid);
-            spec.Name = TradeNames[rand.Next(TradeNames.Length)];
+            spec.Name = PickName(TradeNames, rand);
             spec.Description = DescribePart(picks[0].word, multA, picks[0].lowerIsBetter) + " and "
                              + DescribePart(picks[1].word, multB, picks[1].lowerIsBetter) + ", but "
                              + DescribePart(picks[2].word, nerfMult, picks[2].lowerIsBetter) + ".";
@@ -316,7 +353,7 @@ namespace RCM_Randomizer
             spec.Power = unpaid;
             spec.Coins = 70 + rand.Next(40) + (int)(900 * unpaid);
             if (unpaid > 0.05f) spec.Rarity = Rarity.Rare;
-            spec.Name = TradeNames[rand.Next(TradeNames.Length)];
+            spec.Name = PickName(TradeNames, rand);
             spec.Description = role.word + " only: " + DescribePart(buff.word, buffMult, buff.lowerIsBetter) + ", but "
                              + DescribePart(nerf.word, nerfMult, nerf.lowerIsBetter) + ".";
         }
@@ -360,7 +397,7 @@ namespace RCM_Randomizer
         {
             var behaviour = BehaviourMods.Catalog[rand.Next(BehaviourMods.Catalog.Count)];
             spec.Behaviour = behaviour;
-            spec.Name = behaviour.Label;
+            spec.Name = Claim(behaviour.Label);
             spec.Power = behaviour.Power;
             spec.RoleGate = behaviour.RoleGate;
             spec.RoleWord = behaviour.RoleWord;
@@ -434,6 +471,8 @@ namespace RCM_Randomizer
             row.neededExperienceLevel = spec.Level > 0 ? spec.Level : Progression.NeededExperienceLevelFor(tier);
             row.inactive = !unlocked;
             row.scriptableObject.entityMustHaveOneOfTheseRoles = spec.RoleGate;
+            // like the game's own role cards: only offered to a deck that has something it applies to
+            row.neededSystemTags = StatCoverage.NeededTag(spec.RoleGate);
             return unlocked;
         }
 

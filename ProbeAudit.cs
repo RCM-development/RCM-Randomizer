@@ -24,7 +24,8 @@ namespace RCM_Randomizer
                 "dps0", "dps", "speed", "sight", "mana", "skillCost", "income" }));
             foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
             {
-                if (!row.isAllowedAsBlueprint || row.inactive) continue;
+                // Titans are measured even while locked: they are the content most likely to be mispriced
+                if (!row.isAllowedAsBlueprint || (row.inactive && !Titans.IsGenerated(row.entityId))) continue;
                 try
                 {
                     string card = row.entityId;

@@ -39,12 +39,15 @@ namespace RCM_Randomizer
         static readonly string[] TradeNames =
         {
             "Devil's Bargain", "Unsigned Driver", "Overvolt Exploit", "Borrowed Cycles", "Burn Notice", "Dirty Patch",
+            "Zero-Day Exploit", "Stolen Keys", "Rootkit Surge", "Memory Leak", "Race Condition", "Buffer Overrun",
+            "Fork Bomb", "Forced Reboot",
         };
 
         static readonly string[] NamePool =
         {
             "Rogue Protocol", "Backdoor Patch", "Overclock Daemon", "Ghost Compiler",
             "Splice Routine", "Kernel Tune", "Hot Swap", "Glitch Harvest",
+            "Packet Storm", "Signal Boost", "Cache Warmup", "Silent Update", "Mirror Node", "Deep Scan",
         };
 
         static readonly Dictionary<string, int> AppendedRows = new Dictionary<string, int>();
@@ -61,6 +64,8 @@ namespace RCM_Randomizer
 
         public static void Apply(int seed, float luck, int count)
         {
+            UsedNames.Clear();
+            StatCoverage.Reset();
             var wanted = new Dictionary<string, int>(); // id -> index within its series
             for (int i = 0; i < count; i++) wanted[IdPrefix + i] = i;
             for (int j = 0; j < AdvancedCount; j++) wanted[IdPrefix + AdvancedInfix + j] = j;
@@ -95,6 +100,24 @@ namespace RCM_Randomizer
             }
         }
 
+
+        // one name per hack across both series: two different hacks called "Backdoor Patch Mk II"
+        // cannot be told apart. One random draw either way, so the seed's later rolls do not move.
+        static readonly HashSet<string> UsedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        static string PickName(string[] pool, System.Random rand)
+        {
+            int start = rand.Next(pool.Length);
+            for (int i = 0; i < pool.Length; i++)
+            {
+                string candidate = pool[(start + i) % pool.Length];
+                if (UsedNames.Add(candidate)) return candidate;
+            }
+            for (int n = 2; ; n++)
+            {
+                string numbered = pool[start] + " " + (n <= 3 ? new string('I', n) : n.ToString());
+                if (UsedNames.Add(numbered)) return numbered;
+            }
+        }
         public static bool IsGenerated(string relicId) => relicId != null && relicId.StartsWith(IdPrefix);
 
         public static void ReapplyLoca()
@@ -131,7 +154,7 @@ namespace RCM_Randomizer
                 AddChange(row, first.value, mult, role.role);
                 AddChange(row, drawback.value, drawbackMult, role.role);
                 power = 0.3f * buffPower;
-                name = TradeNames[rand.Next(TradeNames.Length)];
+                name = PickName(TradeNames, rand);
                 description = $"All {role.word} get {Part(first.word, mult)}, but {Part(drawback.word, drawbackMult)}.";
             }
             else if (shape == 2)
@@ -143,7 +166,7 @@ namespace RCM_Randomizer
                 AddChange(row, first.value, multA, role.role);
                 AddChange(row, second.value, multB, role.role);
                 power = Math.Abs(RollEngine.WeightOf(first.value)) * pctA + Math.Abs(RollEngine.WeightOf(second.value)) * pctB;
-                name = NamePool[rand.Next(NamePool.Length)];
+                name = PickName(NamePool, rand);
                 description = $"All {role.word} get {Part(first.word, multA)} and {Part(second.word, multB)}.";
             }
             else
@@ -152,7 +175,7 @@ namespace RCM_Randomizer
                 float mult = first.lowerIsBetter ? 1f - pct : 1f + pct;
                 AddChange(row, first.value, mult, role.role);
                 power = Math.Abs(RollEngine.WeightOf(first.value)) * pct;
-                name = NamePool[rand.Next(NamePool.Length)];
+                name = PickName(NamePool, rand);
                 description = $"All {role.word} get {Part(first.word, mult)}.";
             }
 
@@ -161,6 +184,7 @@ namespace RCM_Randomizer
             // only candidates at every Rare node. Level is how the game gates hacks; power sets the level.
             row.rarity = Rarity.Common;
             if (level > 0) name += " Mk II";
+            row.neededSystemTags = StatCoverage.NeededTag(role.role);   // only offered to a deck it applies to
             row.coinsAmount = (int)(120 + 1600 * power * (1f - Math.Min(0.4f, 0.12f * luck)));
             int tier = level > 0 ? 0 : Progression.TierOfPower(power);
             row.neededExperienceLevel = level > 0 ? level : Progression.NeededExperienceLevelFor(tier);
@@ -193,7 +217,13 @@ namespace RCM_Randomizer
                 && !(_advanced && !asDrawback && s.value == EntityBalancingStore.ChangeableValue.SightRadius)
                 && !(stationary && s.value == EntityBalancingStore.ChangeableValue.MoveSpeed)
                 && !(role == UnitRole.Melee && s.value == EntityBalancingStore.ChangeableValue.WeaponRange)
-                && !(asDrawback && s.value == EntityBalancingStore.ChangeableValue.MaxShield)).ToArray();
+                && !(asDrawback && s.value == EntityBalancingStore.ChangeableValue.MaxShield)
+                // a percentage of zero is zero: a buff needs the stat on half the cards it reaches, a
+                // drawback on nearly all (the audit found "+14 percent shield" for buildings, 1 in 10 of
+                // which has one)
+                && StatCoverage.Share(role, s.value) >= (asDrawback ? 0.8f : 0.5f)).ToArray();
+            if (pool.Length == 0) pool = StatPool.Where(s => s.value == EntityBalancingStore.ChangeableValue.MaxHealth && !except.Contains(s.value)).ToArray();
+            if (pool.Length == 0) pool = StatPool.Where(s => !except.Contains(s.value)).ToArray();
             return pool[rand.Next(pool.Length)];
         }
 
