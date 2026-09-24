@@ -1,7 +1,20 @@
 # Changelog
 
 
-## 0.9.4 — unreleased
+## 0.9.4 — 2026-09-24
+
+### In short
+
+- **Mixed units get real names.** "Incinerator Juggernaut" or "Missile Mech (Railgun)" instead of "Base + Donor", and no turret gets mixed with its own twin any more.
+- **Salvaged enemy units can be upgraded now.** Hacks and upgrades used to skip them entirely, and upgrading one could buff the enemy's copies instead.
+- **Economy buildings behave like buildings.** They no longer pay a hidden +2 crystals/s, must be built near a refinery like everything else, and the Dust Siphon is capped at 3.
+- **Fairer prices and rolls.** Swapped weapons are priced on what they actually fire, rolls only touch stats a unit really uses, and no generated card is stronger than the best one the game ships.
+- **Card texts tell the truth.** Rolled hacks and upgrades only change the numbers that actually changed, and switching the mod off restores every stock card exactly.
+- **Nano Surge works.** It is built on the Vampirism drop now; before, it was a pricier copy of Heal Drop.
+- **Engineer careers grant useful hacks**, drawn by level from the hacks your deck can actually use.
+- **Better battle logs** for chasing late-game frame drops: what the units on the field are, and what mixed-unit spawns cost.
+
+The detailed notes follow.
 
 ### Full audit
 
