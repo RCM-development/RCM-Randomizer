@@ -35,7 +35,9 @@ namespace RCM_Randomizer
             public float LastEmptyBox;      // a named hit box was asked for targets and returned none
             public string EmptyBoxName;
             public int EmptyBoxCount;
-            public float EnemyNearSince;    // an enemy inside weapon range while the unit holds no target in range
+            public float EnemyNearSince;    // engaged (enemy in range, under fire, or ordered to attack) with no target in range
+            public float LastHitAt;         // mixed units: when an enemy last damaged it, and who
+            public EntityController LastHitBy;
         }
 
         static readonly Dictionary<int, State> States = new Dictionary<int, State>();
@@ -80,7 +82,17 @@ namespace RCM_Randomizer
         [HarmonyPatch(typeof(EntityController), "TakeDamage")]
         static class Patch_Damage_Dealt
         {
-            static void Postfix(EntityController originator) => Mark(originator, s => { s.LastDamage = Time.time; s.EverDamaged = true; });
+            static void Postfix(EntityController __instance, EntityController originator)
+            {
+                Mark(originator, s => { s.LastDamage = Time.time; s.EverDamaged = true; });
+                // the victim side, for mixed player units only: being shot is an engagement even when the
+                // attacker stands beyond the unit's own reach, which no other check could see
+                if (!Enabled || __instance == null || originator == null || !__instance.IsControlledByPlayer || DonorOf == null) return;
+                if (string.IsNullOrEmpty(DonorOf(__instance.entityId))) return;
+                var s2 = StateOf(__instance);
+                s2.LastHitAt = Time.time;
+                s2.LastHitBy = originator;
+            }
         }
 
         [HarmonyPatch(typeof(EntityController), "OnReachedTarget")]
@@ -167,19 +179,32 @@ namespace RCM_Randomizer
                 // enemy inside weapon range for the grace period is reported with the attack's own state.
                 string mixedDonor = DonorOf != null ? DonorOf(entity.entityId) : null;
                 if (string.IsNullOrEmpty(mixedDonor)) { state.EnemyNearSince = 0f; return; }
+                // engaged: an enemy inside weapon range, under fire in the last two seconds, or holding an
+                // attack order - any of them without a shot being armed for the grace period is reported
                 var near = NearestEnemy(entity, out float cells);
-                if (near == null || cells > entity.WeaponRange) { state.EnemyNearSince = 0f; return; }
+                bool inRange = near != null && cells <= entity.WeaponRange;
+                bool underFire = state.LastHitBy != null && state.LastHitBy.StillExists && Time.time - state.LastHitAt < 2f;
+                var ordered = attack != null ? attack._attackTarget : null;
+                bool hasOrder = ordered != null && ordered.StillExists;
+                bool armedLately = state.EverArmed && Time.time - state.LastArmed < 2f;
+                if (!(inRange || underFire || hasOrder) || armedLately) { state.EnemyNearSince = 0f; return; }
                 if (state.EnemyNearSince <= 0f) { state.EnemyNearSince = Time.time; return; }
                 float idleGrace = Math.Max(MinGrace, GraceFactor * Math.Max(0.1f, entity.Attack1Cooldown));
                 if (Time.time - state.EnemyNearSince < idleGrace) return;
                 Reported.Add(entity.entityId);
-                TestMod.RCMManager.Log($"Randomizer: WEAPON IDLE - {entity.entityId} <- {mixedDonor}: enemy {near.entityId} at {cells:0.#} cells, inside weapon range {entity.WeaponRange:0.#}, for {Time.time - state.EnemyNearSince:0.#}s, "
-                    + (target == null ? "and it holds no target" : $"its target {target.entityId} is {(target.StillExists ? "not counted in range" : "gone")}")
+                string Dist(EntityController e) => e == null ? "-" : $"{Vector2.Distance(entity.Position2d, e.Position2d) * 0.1f:0.#}";
+                var movement = entity._movement;
+                TestMod.RCMManager.Log($"Randomizer: WEAPON IDLE - {entity.entityId} <- {mixedDonor}, engaged {Time.time - state.EnemyNearSince:0.#}s without arming a shot, weapon range {entity.WeaponRange:0.##}:"
+                    + $" nearest enemy {(near != null ? near.entityId + " at " + cells.ToString("0.#") : "-")}"
+                    + (underFire ? $", under fire from {state.LastHitBy.entityId} at {Dist(state.LastHitBy)} (its range {state.LastHitBy.WeaponRange:0.#})" : ", not under fire")
+                    + (hasOrder ? $", ordered to attack {ordered.entityId} at {Dist(ordered)}" : ", no attack order")
+                    + $", target {(target == null ? "none" : target.entityId + " at " + Dist(target) + (target.StillExists ? "" : " (gone)"))}"
                     + $". attack={(attack == null ? "none" : attack.IsDisabled ? "disabled" : "on")}, mode={(attack == null ? "-" : attack.CurrentAttackMode.ToString())}"
                     + $", auto={(attack == null ? "-" : attack._shootAutomaticallyOnEnemiesWithinRange + "/" + attack._rangeToChooseNewTargetAutomatically)}"
-                    + $", whileMoving={(attack == null ? "-" : attack._canAttackWhileMoving.ToString())}, melee={entity.melee}"
+                    + $", defendAggressively={entity.defendPositionAggressivelyWhenIdle}, whileMoving={(attack == null ? "-" : attack._canAttackWhileMoving.ToString())}"
+                    + $", moving={(movement != null && movement.IsMoving)}, following={(movement != null && movement.IsFollowing)}, melee={entity.melee}"
                     + $", aiming={(entity.aiming == null ? "none" : entity.aiming.GetType().Name + "/" + (entity.aiming.IsReady ? "ready" : "not ready"))}"
-                    + $", layers {entity.CurrentHeightLayer}->{near.CurrentHeightLayer}");
+                    + (near != null ? $", layers {entity.CurrentHeightLayer}->{near.CurrentHeightLayer}" : ""));
                 return;
             }
             state.EnemyNearSince = 0f;
