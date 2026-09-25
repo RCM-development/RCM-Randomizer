@@ -25,6 +25,9 @@ namespace RCM_Randomizer
         public static int LevelStep = 4;
 
         public static readonly HashSet<string> Products = new HashSet<string>();
+        // which player factory each card was copied from (its building, model and build rules)
+        static readonly Dictionary<string, string> TemplateIds = new Dictionary<string, string>();
+        public static string TemplateOf(string cardId) => cardId != null && TemplateIds.TryGetValue(cardId, out string t) ? t : null;
         static readonly Dictionary<string, int> AppendedRows = new Dictionary<string, int>();
         static readonly Dictionary<string, KeyValuePair<string, string>> LocaEntries = new Dictionary<string, KeyValuePair<string, string>>();
 
@@ -37,6 +40,7 @@ namespace RCM_Randomizer
         {
             Deactivate();
             Products.Clear();
+            TemplateIds.Clear();
             if (!Enabled || Count <= 0) return;
             var list = EntityBalancingStore.EntityBalancingParametersList;
 
@@ -99,9 +103,10 @@ namespace RCM_Randomizer
                 PlayerCopies.SetLoca(unitId, unitName, string.IsNullOrEmpty(enemyText) || enemyText == enemyId
                     ? "Salvaged from the enemy's roster and rebuilt in your own foundry." : enemyText);
 
+                TemplateIds[cardId] = card.entityId;
                 card.entityId = cardId;
                 card.factoryForEntityId = new NullableString { hasValue = true, value = unitId };
-                card.cost = PriceAgainstRoster(unit, Math.Max(1, unit.maxCapacity), rosterValue);
+                card.cost = PriceAgainstRoster(unit, Math.Max(1, unit.maxCapacity), rosterValue, card.cost);
                 card.coinsAmount = Math.Max(1, (int)(card.coinsAmount * 1.5f));
                 card.rarity = Rarity.UltraRare;
                 card.neededExperienceLevel = FirstLevel + n * LevelStep;
@@ -121,11 +126,14 @@ namespace RCM_Randomizer
                 TestMod.RCMManager.Log("Randomizer: salvage cards (" + names.Count + " of " + poolSize + " enemy units that qualify, priced at roster value " + rosterValue.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "/crystal) -> " + string.Join(", ", names));
         }
 
-        // Priced against the player's own roster, not the enemy's table cost. An enemy unit's nominal
-        // cost says nothing about what it is worth in a player's hands: measured as sqrt(dps x hp) x
-        // units-per-factory per crystal (UnitCap: factories x the UNIT's maxCapacity), 2.5x that cost
-        // bore no relation to what the card fields. The roster is measured at apply time and each card priced to
-        // sit at RosterQuantile of it: strong for its price, not the best buy in the deck.
+        // Priced against the player's own roster, not the enemy's table cost. What a factory card is worth
+        // is sqrt(dps x hp) x units-per-factory (UnitCap: factories x the UNIT's maxCapacity) per crystal
+        // spent to FIELD them - the factory plus a full load of units. Measured on the factory alone, a
+        // unit that is cheap to buy but costly to build looked like a bargain the other way round: the PCX
+        // Siege Armor foundry came out at 96 crystals for units at 422 each, next to a 1536 Tier 2 Tank
+        // Factory, while the Charge Laser and Railgun salvage sat at the roster's top 5 percent once their
+        // units were counted. The roster is measured at apply time and each foundry priced so the whole
+        // package sits at RosterQuantile of it: strong for its price, not the best buy in the deck.
         const double RosterQuantile = 0.75;
 
         static float RosterValue(List<EntityBalancingParameters> list, double quantile)
@@ -140,7 +148,8 @@ namespace RCM_Randomizer
                 double power = Power(product);
                 // each factory keeps the PRODUCT's maxCapacity units alive (UnitCap.MaxPlayerCapacity is factories x
                 // MaxCapacity(product)); the factory row's own capacity only limits how many factories fit
-                if (power > 0) values.Add(power * Math.Max(1, product.maxCapacity) / card.cost);
+                int capacity = Math.Max(1, product.maxCapacity);
+                if (power > 0) values.Add(power * capacity / (card.cost + capacity * Math.Max(0, product.cost)));
             }
             if (values.Count == 0) return 0f;
             values.Sort();
@@ -153,13 +162,16 @@ namespace RCM_Randomizer
             return dps > 0 && unit.maxHealth > 0 ? Math.Sqrt(dps * unit.maxHealth) : 0;
         }
 
-        static int PriceAgainstRoster(EntityBalancingParameters unit, int capacity, float rosterValue)
+        static int PriceAgainstRoster(EntityBalancingParameters unit, int capacity, float rosterValue, int templateCost)
         {
             double power = Power(unit) * capacity;
-            if (rosterValue <= 0f || power <= 0) return Math.Max(250, (int)(Worth(unit) * 2.5f));   // nothing to measure against
-            // a floor well under any real unit's fair price: at 250 it overrode the roster for weak units
-            // (a CF4 Sniper worth ~175 sat 30 percent over the line)
-            return Math.Max(100, (int)Math.Round(power / rosterValue / 10.0) * 10);
+            // the foundry IS its template's building (same prefab and health), so never far below what that
+            // factory costs: half of it. Units already too expensive for what they field sit at this floor.
+            int floor = Math.Max(100, templateCost / 2);
+            if (rosterValue <= 0f || power <= 0) return Math.Max(floor, (int)(Worth(unit) * 2.5f));   // nothing to measure against
+            double fielding = power / rosterValue;                          // crystals the whole package is worth
+            double foundry = fielding - capacity * Math.Max(0, unit.cost);  // minus what its units cost to build
+            return Math.Max(floor, (int)Math.Round(foundry / 10.0) * 10);
         }
         // Enemy units carry no price of their own (the AI spawns them), so what a card for one is
         // worth is read off what it fields: sustained damage and how much of it survives.

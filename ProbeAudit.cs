@@ -21,7 +21,7 @@ namespace RCM_Randomizer
                 "cost0", "cost", "build0", "build", "cap",
                 "hp0", "hp", "shield", "armor0", "armor",
                 "dmg0", "dmg", "cd0", "cd", "range0", "range", "splash", "barrels",
-                "dps0", "dps", "speed", "sight", "mana", "skillCost", "income", "cap0", "unitCap" }));
+                "dps0", "dps", "speed", "sight", "mana", "skillCost", "income", "cap0", "unitCap", "unitCost", "template" }));
             foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
             {
                 // Titans are measured even while locked: they are the content most likely to be mispriced
@@ -60,7 +60,8 @@ namespace RCM_Randomizer
                         F(EntityBalancingStore.GainCreditsAmount(unit)), EntityBalancingStore.MaxCapacity(card, true).ToString(),
                         // units a factory keeps alive come from the UNIT's row (UnitCap.MaxPlayerCapacity); the
                         // card's own capacity is how many of the building may be placed
-                        EntityBalancingStore.MaxCapacity(unit).ToString() }));
+                        EntityBalancingStore.MaxCapacity(unit).ToString(),
+                        unit == card ? "0" : EntityBalancingStore.Cost(unit).ToString(), SalvagedTech.TemplateOf(card) ?? "-" }));
                 }
                 catch (Exception e) { sb.AppendLine(row.entityId + "\tFAILED\t" + e.Message); }
             }
@@ -123,6 +124,24 @@ namespace RCM_Randomizer
             var mixer = HarmonyLib.AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
             sb.AppendLine("battle census can read the mixer's swap totals: "
                 + (mixer != null && HarmonyLib.AccessTools.Field(mixer, "UnitSwapCount") != null && HarmonyLib.AccessTools.Field(mixer, "UnitSwapMs") != null));
+
+            // Every appended row that borrows another entity's prefab spawns with THAT entity's serialized
+            // id unless something stamps ours on - an unstamped salvage foundry came out as the Tier 2 Tank
+            // Factory it was copied from. Each active generated row, and whether a stamper covers it.
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (row.inactive || row.entityId == null || !row.entityId.StartsWith("rcmgen_", StringComparison.Ordinal)) continue;
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(row.prefabLocation ?? "") as UnityEngine.GameObject;
+                    var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                    if (c == null || c.entityId == row.entityId) continue;
+                    bool stamped = PlayerCopies.IsCopy(row.entityId) || Titans.IsGenerated(row.entityId)
+                                || EconomyBuildings.IsGenerated(row.entityId) || GeneratedDrops.IsGenerated(row.entityId);
+                    sb.AppendLine((stamped ? "stamped   " : "UNSTAMPED ") + row.entityId + " (prefab says " + c.entityId + ")");
+                }
+                catch (Exception e) { sb.AppendLine("stamp check FAILED " + row.entityId + " " + e.Message); }
+            }
             File.WriteAllText(path, sb.ToString());
         }
 
