@@ -76,6 +76,96 @@ namespace RCM_Randomizer
             WriteSpawnCost(Path.ChangeExtension(path, null) + "Spawn.txt", donorOf);
             WriteSpawnSides(Path.ChangeExtension(path, null) + "Spawns.tsv");
             WriteSideFixTest(Path.ChangeExtension(path, null) + "SideFix.txt", donorOf);
+            WriteMuzzles(Path.ChangeExtension(path, null) + "Muzzles.txt", donorOf);
+        }
+
+        // The swap keeps only the donor's turret pivot subtree; the donor clone is destroyed after. A
+        // ShootProjectile whose fire points hang OUTSIDE that subtree keeps a reference to a destroyed
+        // transform, and ShootProjectile's own ValidateTransform then skips the shot - silently. Checked
+        // per donor on a dormant instance, with the mixer's own pivot finder.
+        static void WriteMuzzles(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder("donor\tpivot\tfirePoints\tinsidePivot\thosts\n");
+            var mixer = HarmonyLib.AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
+            var pivotOf = mixer != null ? HarmonyLib.AccessTools.Method(mixer, "GetPivotFromAiming") : null;
+            if (pivotOf == null) { File.WriteAllText(path, "mixer pivot finder not found\n"); return; }
+            var hostsOf = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string d = null;
+                try { d = donorOf?.Invoke(row.entityId); } catch { }
+                if (string.IsNullOrEmpty(d)) continue;
+                if (!hostsOf.TryGetValue(d, out var list)) hostsOf[d] = list = new System.Collections.Generic.List<string>();
+                if (!list.Contains(row.entityId)) list.Add(row.entityId);
+            }
+            foreach (var entry in hostsOf)
+            {
+                string donor = entry.Key;
+                UnityEngine.GameObject prefab = null, dormant = null;
+                bool was = true;
+                try
+                {
+                    prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(donor)) as UnityEngine.GameObject;
+                    if (prefab == null) continue;
+                    was = prefab.activeSelf;
+                    prefab.SetActive(false);
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    var c = dormant.GetComponent<EntityController>();
+                    var pivot = c?.aiming != null ? pivotOf.Invoke(null, new object[] { c.aiming }) as UnityEngine.Transform : null;
+                    var shots = new System.Collections.Generic.List<ShootProjectile>();
+                    if (c?.events != null)
+                        foreach (var ev in c.events)
+                            if (ev != null && Array.IndexOf(Copied, ev.@event) >= 0) CollectOfType(ev, shots, new System.Collections.Generic.HashSet<object>(), 0);
+                    foreach (var shot in shots)
+                    {
+                        var fp = shot.firePointsTransform;
+                        string inside = pivot == null ? "no pivot" : fp == null ? "no fire points" : (fp == pivot || fp.IsChildOf(pivot)).ToString();
+                        sb.AppendLine($"{donor}\t{(pivot != null ? pivot.name : "-")}\t{(fp != null ? fp.name : "-")}\t{inside}\t{string.Join(",", entry.Value)}");
+                    }
+                    if (shots.Count == 0) sb.AppendLine($"{donor}\t{(pivot != null ? pivot.name : "-")}\t(no ShootProjectile)\t-\t{string.Join(",", entry.Value)}");
+                    sb.AppendLine($"  donor aiming {(c?.aiming != null ? c.aiming.GetType().Name : "none")} melee={c?.melee}");
+                    // the attack is built from the HOST's own settings, only aiming and melee come from the donor
+                    foreach (string host in entry.Value)
+                    {
+                        try
+                        {
+                            var hp = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(host)) as UnityEngine.GameObject;
+                            var h = hp != null ? hp.GetComponent<EntityController>() : null;
+                            if (h == null) continue;
+                            sb.AppendLine($"  host {host}: canAttack={h.canAttack} auto={h.shootAutomaticallyOnEnemiesWithinRange}/{h.rangeToChooseNewTargetAutomatically} whileMoving={h.canAttackWhileMoving} melee={h.melee} aiming={(h.aiming != null ? h.aiming.GetType().Name : "none")} skillAiming={(h.skillAiming != null)} range={EntityBalancingStore.WeaponRange(host):0.##}");
+                        }
+                        catch (Exception e) { sb.AppendLine("  host " + host + " FAILED " + e.Message); }
+                    }
+                }
+                catch (Exception e) { sb.AppendLine(donor + "\tFAILED\t" + e.Message); }
+                finally
+                {
+                    if (prefab != null) prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        static void CollectOfType<T>(object o, System.Collections.Generic.List<T> into, System.Collections.Generic.HashSet<object> seen, int depth) where T : class
+        {
+            if (o == null || depth > 10) return;
+            if (o is T hit) { if (seen.Add(hit)) into.Add(hit); return; }
+            var t = o.GetType();
+            if (t.IsPrimitive || t.IsEnum || o is string || o is decimal) return;
+            if (o is UnityEngine.Object && !(o is UnityEngine.ScriptableObject)) return;
+            if (!t.IsValueType && !seen.Add(o)) return;
+            if (o is System.Collections.IEnumerable list)
+            {
+                foreach (var item in list) CollectOfType(item, into, seen, depth + 1);
+                return;
+            }
+            foreach (var f in t.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                object v;
+                try { v = f.GetValue(o); } catch { continue; }
+                CollectOfType(v, into, seen, depth + 1);
+            }
         }
 
         // SpawnSides.Fix run for real on a dormant instance of what each entity is built from: a player copy

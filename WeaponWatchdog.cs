@@ -35,6 +35,7 @@ namespace RCM_Randomizer
             public float LastEmptyBox;      // a named hit box was asked for targets and returned none
             public string EmptyBoxName;
             public int EmptyBoxCount;
+            public float EnemyNearSince;    // an enemy inside weapon range while the unit holds no target in range
         }
 
         static readonly Dictionary<int, State> States = new Dictionary<int, State>();
@@ -160,8 +161,28 @@ namespace RCM_Randomizer
             if (target == null || !target.StillExists || !attack.IsCurrentTargetInRange)
             {
                 state.TargetSince = 0f;
+                // The other blind spot: everything above needs the unit to HOLD a target in range, so a unit
+                // standing next to enemies and never taking one said nothing ("Grenadier 4x4 (A Tank) does
+                // not fire at all", clean log). For mixed units - the ones whose attack the mod rebuilt - an
+                // enemy inside weapon range for the grace period is reported with the attack's own state.
+                string mixedDonor = DonorOf != null ? DonorOf(entity.entityId) : null;
+                if (string.IsNullOrEmpty(mixedDonor)) { state.EnemyNearSince = 0f; return; }
+                var near = NearestEnemy(entity, out float cells);
+                if (near == null || cells > entity.WeaponRange) { state.EnemyNearSince = 0f; return; }
+                if (state.EnemyNearSince <= 0f) { state.EnemyNearSince = Time.time; return; }
+                float idleGrace = Math.Max(MinGrace, GraceFactor * Math.Max(0.1f, entity.Attack1Cooldown));
+                if (Time.time - state.EnemyNearSince < idleGrace) return;
+                Reported.Add(entity.entityId);
+                TestMod.RCMManager.Log($"Randomizer: WEAPON IDLE - {entity.entityId} <- {mixedDonor}: enemy {near.entityId} at {cells:0.#} cells, inside weapon range {entity.WeaponRange:0.#}, for {Time.time - state.EnemyNearSince:0.#}s, "
+                    + (target == null ? "and it holds no target" : $"its target {target.entityId} is {(target.StillExists ? "not counted in range" : "gone")}")
+                    + $". attack={(attack == null ? "none" : attack.IsDisabled ? "disabled" : "on")}, mode={(attack == null ? "-" : attack.CurrentAttackMode.ToString())}"
+                    + $", auto={(attack == null ? "-" : attack._shootAutomaticallyOnEnemiesWithinRange + "/" + attack._rangeToChooseNewTargetAutomatically)}"
+                    + $", whileMoving={(attack == null ? "-" : attack._canAttackWhileMoving.ToString())}, melee={entity.melee}"
+                    + $", aiming={(entity.aiming == null ? "none" : entity.aiming.GetType().Name + "/" + (entity.aiming.IsReady ? "ready" : "not ready"))}"
+                    + $", layers {entity.CurrentHeightLayer}->{near.CurrentHeightLayer}");
                 return;
             }
+            state.EnemyNearSince = 0f;
             if (state.TargetSince <= 0f) { state.TargetSince = Time.time; return; }
 
             float cooldown = Math.Max(0.1f, entity.Attack1Cooldown);
@@ -188,6 +209,22 @@ namespace RCM_Randomizer
                 + (string.IsNullOrEmpty(donor) ? " (stock weapon)" : " <- " + donor)
                 + $" {verdict}. target {target.entityId} at {distance:0.#} cells, weapon range {entity.WeaponRange:0.#},"
                 + $" cooldown {cooldown:0.##}s, held for {holding:0.#}s, aiming={(entity.aiming == null ? "none" : entity.aiming.GetType().Name + "/" + (entity.aiming.IsReady ? "ready" : "not ready"))}");
+        }
+
+        // the enemy list the game's own targeting walks (EntityAttack.EnemiesWithinRange), nearest first
+        static EntityController NearestEnemy(EntityController self, out float cells)
+        {
+            cells = float.MaxValue;
+            EntityController best = null;
+            var here = self.Position;
+            foreach (var e in ExistingControllers.Instance.AllEntitiesOfTeamAndType(Team.Enemy, ExistingControllers.Type.UnitsBuildingsAndEverythingElse, self.gameObject.tag))
+            {
+                if (e == null || e.doNotRegisterGlobally || e.canNotBeAttacked || e.canNotBeDamaged || e.IsBehindSecondaryFogOfWar) continue;
+                float d = (e.Position - here).sqrMagnitude;
+                if (d < cells) { cells = d; best = e; }
+            }
+            cells = best != null ? Mathf.Sqrt(cells) * 0.1f : float.MaxValue;
+            return best;
         }
 
         public static void Reset()
