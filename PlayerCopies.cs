@@ -34,7 +34,25 @@ namespace RCM_Randomizer
             row.isAllowedForAi = false;
             row.isAllowedAsStartingBlueprint = false;
             row.inactive = false;
+            // A player unit's system tags say what it is (every vanilla Mech carries Mech, Robos Robo), and
+            // they decide which role cards a deck is offered - the game checks the card AND its product.
+            // Enemy rows carry none: a deck whose only mech was a salvaged PCX SGE Mech was never offered
+            // a Mech hack. The type tags follow the unit's roles, as on the game's own units.
+            row.offeredSystemTags |= TypeTags(row.roles);
             return row;
+        }
+
+        static SystemTags TypeTags(UnitRole roles)
+        {
+            var tags = SystemTags.None;
+            if ((roles & UnitRole.Mech) != 0) tags |= SystemTags.Mech;
+            if ((roles & UnitRole.Robo) != 0) tags |= SystemTags.Robo;
+            if ((roles & UnitRole.Tank) != 0) tags |= SystemTags.Tank;
+            if ((roles & UnitRole.Vehicle) != 0) tags |= SystemTags.Vehicle;
+            if ((roles & UnitRole.Turret) != 0) tags |= SystemTags.Turret;
+            if ((roles & UnitRole.Sniper) != 0) tags |= SystemTags.Sniper;
+            if ((roles & UnitRole.Melee) != 0) tags |= SystemTags.Melee;
+            return tags;
         }
 
         public static void Write(EntityBalancingParameters row)

@@ -74,6 +74,138 @@ namespace RCM_Randomizer
             WriteRolledTexts(Path.ChangeExtension(path, null) + "Texts.txt");
             WriteMeta(Path.ChangeExtension(path, null) + "Meta.txt");
             WriteSpawnCost(Path.ChangeExtension(path, null) + "Spawn.txt", donorOf);
+            WriteSpawnSides(Path.ChangeExtension(path, null) + "Spawns.tsv");
+            WriteSideFixTest(Path.ChangeExtension(path, null) + "SideFix.txt", donorOf);
+        }
+
+        // SpawnSides.Fix run for real on a dormant instance of what each entity is built from: a player copy
+        // is its enemy prefab; a mixed host fires its DONOR's events (the mixer adds the donor clone's own
+        // event objects to the host), so the donor prefab stands in with the host's id and side. Reports how
+        // many spawns were switched and that the prefab asset itself was left untouched.
+        static void WriteSideFixTest(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            var cases = new System.Collections.Generic.List<(string id, string prefabOf, string tag)>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (string.IsNullOrEmpty(row.entityId)) continue;
+                if (PlayerCopies.IsCopy(row.entityId) && !SalvagedTech.IsGenerated(row.entityId)) cases.Add((row.entityId, row.entityId, "Player"));
+                string donor = null;
+                try { donor = donorOf?.Invoke(row.entityId); } catch { }
+                if (!string.IsNullOrEmpty(donor)) cases.Add((row.entityId, donor, row.isAllowedForAi && !row.isAllowedAsBlueprint ? "AI" : "Player"));
+            }
+            SpawnSides.Reset();
+            foreach (var (id, prefabOf, tag) in cases)
+            {
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(prefabOf)) as UnityEngine.GameObject;
+                    if (prefab == null) continue;
+                    string before = SideSignature(prefab.GetComponent<EntityController>());
+                    bool was = prefab.activeSelf;
+                    prefab.SetActive(false);
+                    UnityEngine.GameObject dormant = null;
+                    int fixedCount;
+                    try
+                    {
+                        dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                        var c = dormant.GetComponent<EntityController>();
+                        c.entityId = id;
+                        dormant.tag = tag;
+                        fixedCount = SpawnSides.Fix(c);
+                    }
+                    finally
+                    {
+                        prefab.SetActive(was);
+                        if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                    }
+                    bool untouched = before == SideSignature(prefab.GetComponent<EntityController>());
+                    if (fixedCount > 0 || !untouched) sb.AppendLine($"sidefix {id} ({tag}) events of {prefabOf}: switched {fixedCount}, asset untouched={untouched}");
+                }
+                catch (Exception e) { sb.AppendLine($"sidefix {id} FAILED {e.Message}"); }
+            }
+            SpawnSides.Reset();
+            sb.AppendLine($"# {cases.Count} entities checked");
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        static string SideSignature(EntityController c)
+        {
+            var spawns = new System.Collections.Generic.List<SpawnObject>();
+            if (c?.events != null) CollectSpawns(c.events, spawns, new System.Collections.Generic.HashSet<object>(), 0);
+            return string.Join(",", spawns.ConvertAll(s => s.tagHandling + ":" + s.overwriteTag));
+        }
+
+        // Every SpawnObject in every prefab, and which side what it spawns ends up on. A spawn either takes
+        // its owner's tag, a fixed string, or keeps the spawned prefab's own tag - so an enemy unit's
+        // weapon handed to the player (salvage, a donor turret) can keep spawning things for the ENEMY.
+        static void WriteSpawnSides(string path)
+        {
+            var sb = new StringBuilder("owner\tevent\tspawnKind\tspawned\ttagHandling\toverwriteTag\tspawnedPrefabTag\tspawnedHasController\tspawnedForAi\tinitController\n");
+            var done = new System.Collections.Generic.HashSet<string>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (string.IsNullOrEmpty(row.prefabLocation) || !done.Add(row.entityId)) continue;
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(row.prefabLocation) as UnityEngine.GameObject;
+                    var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                    if (c?.events == null) continue;
+                    var found = new System.Collections.Generic.List<(string ev, SpawnObject s)>();
+                    foreach (var ev in c.events)
+                    {
+                        if (ev == null) continue;
+                        var spawns = new System.Collections.Generic.List<SpawnObject>();
+                        CollectSpawns(ev, spawns, new System.Collections.Generic.HashSet<object>(), 0);
+                        foreach (var s in spawns) found.Add((ev.@event.ToString(), s));
+                    }
+                    foreach (var (ev, s) in found)
+                    {
+                        string spawned = s.spawn == SpawnObject.Spawn.EntityId ? s.entityId
+                                       : s.spawn == SpawnObject.Spawn.Prefab ? (s.prefab != null ? "prefab:" + s.prefab.name : "prefab:null")
+                                       : s.spawn.ToString();
+                        string tag = "-"; bool controller = false; string forAi = "-";
+                        if (s.spawn == SpawnObject.Spawn.EntityId && !string.IsNullOrEmpty(s.entityId))
+                        {
+                            try
+                            {
+                                var sp = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(s.entityId)) as UnityEngine.GameObject;
+                                if (sp != null) { tag = sp.tag; controller = sp.GetComponent<EntityController>() != null; }
+                                forAi = EntityBalancingStore.IsAllowedForAi(s.entityId).ToString();
+                            }
+                            catch { }
+                        }
+                        else if (s.spawn == SpawnObject.Spawn.Prefab && s.prefab != null)
+                        {
+                            tag = s.prefab.tag; controller = s.prefab.GetComponent<EntityController>() != null;
+                        }
+                        sb.AppendLine($"{row.entityId}\t{ev}\t{s.spawn}\t{spawned}\t{s.tagHandling}\t{s.overwriteTag}\t{tag}\t{controller}\t{forAi}\t{s.initEntityController}");
+                    }
+                }
+                catch (Exception e) { sb.AppendLine(row.entityId + "\tFAILED\t" + e.Message); }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        static void CollectSpawns(object o, System.Collections.Generic.List<SpawnObject> into, System.Collections.Generic.HashSet<object> seen, int depth)
+        {
+            if (o == null || depth > 10) return;
+            if (o is SpawnObject s) { if (seen.Add(s)) into.Add(s); return; }
+            var t = o.GetType();
+            if (t.IsPrimitive || t.IsEnum || o is string || o is decimal) return;
+            if (o is UnityEngine.Object && !(o is UnityEngine.ScriptableObject)) return;
+            if (!t.IsValueType && !seen.Add(o)) return;
+            if (o is System.Collections.IEnumerable list)
+            {
+                foreach (var item in list) CollectSpawns(item, into, seen, depth + 1);
+                return;
+            }
+            foreach (var f in t.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                object v;
+                try { v = f.GetValue(o); } catch { continue; }
+                CollectSpawns(v, into, seen, depth + 1);
+            }
         }
 
         // A mixed unit's spawn instantiates its donor whole (16-24ms in battle logs) only to take its
@@ -130,7 +262,7 @@ namespace RCM_Randomizer
             // Factory it was copied from. Each active generated row, and whether a stamper covers it.
             foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
             {
-                if (row.inactive || row.entityId == null || !row.entityId.StartsWith("rcmgen_", StringComparison.Ordinal)) continue;
+                if (row.entityId == null || !row.entityId.StartsWith("rcmgen_", StringComparison.Ordinal)) continue; // locked ones too: Titans, captured tech
                 try
                 {
                     var prefab = UnityEngine.Resources.Load(row.prefabLocation ?? "") as UnityEngine.GameObject;
@@ -138,11 +270,50 @@ namespace RCM_Randomizer
                     if (c == null || c.entityId == row.entityId) continue;
                     bool stamped = PlayerCopies.IsCopy(row.entityId) || Titans.IsGenerated(row.entityId)
                                 || EconomyBuildings.IsGenerated(row.entityId) || GeneratedDrops.IsGenerated(row.entityId);
-                    sb.AppendLine((stamped ? "stamped   " : "UNSTAMPED ") + row.entityId + " (prefab says " + c.entityId + ")");
+                    // Stamping fixes the entity's own id, not ids its events NAME: a borrowed factory prefab
+                    // whose OnStart spawns "its" unit by id would still hand out the original's unit.
+                    var named = new System.Collections.Generic.SortedSet<string>(StringComparer.Ordinal);
+                    NamedIds(c.events, named, new System.Collections.Generic.HashSet<object>(), 0);
+                    NamedIds(c.entityIdentifiers, named, new System.Collections.Generic.HashSet<object>(), 0);
+                    string product = row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : "-";
+                    string prefabProduct = EntityBalancingStore.ParameterListIndexOf.ContainsKey(c.entityId) ? (EntityBalancingStore.ProductEntityId(c.entityId) ?? "-") : "-";
+                    sb.AppendLine((stamped ? "stamped   " : "UNSTAMPED ") + row.entityId + " (prefab says " + c.entityId + ")"
+                        + "\tproduct=" + product + "\tprefabProduct=" + prefabProduct + "\tnames=" + string.Join(",", named));
                 }
                 catch (Exception e) { sb.AppendLine("stamp check FAILED " + row.entityId + " " + e.Message); }
             }
             File.WriteAllText(path, sb.ToString());
+        }
+
+        // every string an action or identifier holds in a field that names an entity (entityId, EntityId,
+        // spawnEntityId, ...), nested entity mods included
+        static void NamedIds(object o, System.Collections.Generic.ISet<string> ids, System.Collections.Generic.HashSet<object> seen, int depth)
+        {
+            if (o == null || depth > 10) return;
+            var t = o.GetType();
+            if (t.IsPrimitive || t.IsEnum || o is string || o is decimal) return;
+            if (o is UnityEngine.Object && !(o is UnityEngine.ScriptableObject)) return;
+            if (!t.IsValueType && !seen.Add(o)) return;
+            if (o is System.Collections.IEnumerable list)
+            {
+                foreach (var item in list) NamedIds(item, ids, seen, depth + 1);
+                return;
+            }
+            foreach (var f in t.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                object v;
+                try { v = f.GetValue(o); } catch { continue; }
+                if (v is string s)
+                {
+                    if (!string.IsNullOrEmpty(s) && f.Name.IndexOf("ntity", StringComparison.OrdinalIgnoreCase) >= 0
+                        && EntityBalancingStore.ParameterListIndexOf.ContainsKey(s)) ids.Add(s);
+                }
+                else if (v is System.Collections.Generic.IEnumerable<string> strings && f.Name.IndexOf("ntity", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    foreach (var x in strings) if (!string.IsNullOrEmpty(x) && EntityBalancingStore.ParameterListIndexOf.ContainsKey(x)) ids.Add(x);
+                }
+                else NamedIds(v, ids, seen, depth + 1);
+            }
         }
 
         // Account (meta) upgrades carry card changes of their own and are loaded into the balancing
@@ -202,7 +373,7 @@ namespace RCM_Randomizer
         // identifiers is collected and the audit matches the rolled stat against that set.
         static void WriteStatUse(string path)
         {
-            var sb = new StringBuilder("entity\thasActiveSkill\ttokens\tname\tlevel\tdamage1\theal1\tduration1\tduration2\tforAi\tblueprint\tfactory\tproduces\tupgradesCopyTo\n");
+            var sb = new StringBuilder("entity\thasActiveSkill\ttokens\tname\tlevel\tdamage1\theal1\tduration1\tduration2\tforAi\tblueprint\tfactory\tproduces\tupgradesCopyTo\troles\ttags\n");
             var done = new System.Collections.Generic.HashSet<string>();
             foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
             {
@@ -218,7 +389,9 @@ namespace RCM_Randomizer
                       .Append('\t').Append(row.isAllowedForAi).Append('\t').Append(row.isAllowedAsBlueprint)
                       .Append('\t').Append(EntityBalancingStore.FactoryEntityId(row.entityId) ?? "-")
                       .Append('\t').Append(row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : "-")
-                      .Append('\t').AppendLine(row.copyUpgradesToEntityId.hasValue ? row.copyUpgradesToEntityId.value : "-");
+                      .Append('\t').Append(row.copyUpgradesToEntityId.hasValue ? row.copyUpgradesToEntityId.value : "-")
+                      .Append('\t').Append(row.roles.ToString().Replace(", ", "|"))
+                      .Append('\t').AppendLine(row.offeredSystemTags.ToString().Replace(", ", "|"));
                 }
                 catch (Exception e) { sb.AppendLine(row.entityId + "\tFAILED\t" + e.Message); }
             }

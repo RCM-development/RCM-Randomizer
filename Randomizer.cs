@@ -115,6 +115,7 @@ namespace RCM_Randomizer
             RollEngine.SkillOptions = SkillInjector.Options;
             RollEngine.HasOwnSkill = PrefabHasActiveSkill;
             StatUse.DonorOf = id => _donorMap != null && _donorMap.TryGetValue(id, out string d) ? d : null;
+            SpawnSides.DonorOf = StatUse.DonorOf;
             StartCoroutine(MixedUnitPresentation.ProcessCaptureQueue());
             _mode = Config.Bind("General", "Mode", Mode.PerSave,
                 "Off = stock game. PerSave = rolled once per profile (reroll via UI). PerRun = fresh rolls from each run's Run ID.");
@@ -402,6 +403,7 @@ namespace RCM_Randomizer
                 Titans.Apply(seed, _titanUnitCount.Value, _titanTurretCount.Value);
                 if (_capturedTechCount.Value > 0) ApplyCapturedTech(seed);
                 UpdateTurretShuffle(seed); // first: weapon pricing needs the donor map
+                SpawnSides.Reset(); // per-id verdicts depend on the donor map
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
                 ApplyEngineerCareer();
