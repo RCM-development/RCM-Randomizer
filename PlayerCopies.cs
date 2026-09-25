@@ -21,7 +21,8 @@ namespace RCM_Randomizer
             && (entityId.StartsWith(SalvagedTech.UnitPrefix, StringComparison.Ordinal) || entityId.StartsWith(CapturedPrefix, StringComparison.Ordinal)
                // the salvage FOUNDRY too: it is a copy of a real factory row, and unstamped it came out as that
                // factory (a Tier 2 Tank Factory building T2 Blockade Tanks) at the salvage card's price
-               || entityId.StartsWith(SalvagedTech.Prefix, StringComparison.Ordinal));
+               || entityId.StartsWith(SalvagedTech.Prefix, StringComparison.Ordinal)
+               || entityId.StartsWith(RoofTurrets.CopyPrefix, StringComparison.Ordinal));
 
         static readonly Dictionary<string, int> AppendedRows = new Dictionary<string, int>();
         static readonly Dictionary<string, KeyValuePair<string, string>> LocaEntries = new Dictionary<string, KeyValuePair<string, string>>();

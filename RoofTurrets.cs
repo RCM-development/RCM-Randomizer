@@ -38,6 +38,36 @@ namespace RCM_Randomizer
         public static void Assign(string entityId, string turretId) => Assigned[entityId] = turretId;
         public static void Clear() => Assigned.Clear();
 
+        // Two of the four roof guns are the ENEMY's ids (PCXTankRoofMachineGun,
+        // PCXBigHunterRoofTurretOnlyAsChild): card changes pick their side per id, so a player's roof gun
+        // under such an id took no player turret hack and every enemy-side change, enemy rolls included.
+        // The world spawns a player-side copy instead (PlayerCopies); the card model is the same prefab.
+        public const string CopyPrefix = "rcmgen_roof_";
+        static readonly Dictionary<string, string> PlayerIdOf = new Dictionary<string, string>();
+
+        public static void PrepareCopies()
+        {
+            PlayerCopies.Deactivate(CopyPrefix);
+            PlayerIdOf.Clear();
+            foreach (string id in AvailableIds())
+            {
+                try
+                {
+                    if (!EntityBalancingStore.IsAllowedForAi(id)) continue;
+                    if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(id, out int index)) continue;
+                    string copyId = CopyPrefix + id;
+                    PlayerCopies.Write(PlayerCopies.Copy(EntityBalancingStore.EntityBalancingParametersList[index], copyId));
+                    string name = MixedUnitPresentation.BaseName(id) ?? Loca.BlueprintName(id);
+                    PlayerCopies.SetLoca(copyId, string.IsNullOrEmpty(name) || name == id ? "Roof Gun" : name, "A second gun on the roof that aims and fires on its own.");
+                    PlayerIdOf[id] = copyId;
+                }
+                catch (Exception e) { RCMManager.Log("Randomizer: roof gun copy failed for " + id + " (" + e.Message + ")"); }
+            }
+        }
+
+        public static string PlayerSideId(string turretId) =>
+            turretId != null && PlayerIdOf.TryGetValue(turretId, out string copy) ? copy : turretId;
+
         // Candidates that exist in this build of the game: a balancing row and a loadable prefab.
         // Not latched while empty - the first call can come before the entity table is loaded.
         public static List<string> AvailableIds()
@@ -74,7 +104,7 @@ namespace RCM_Randomizer
                 try
                 {
                     _spawning = true; // the factory call below re-enters this postfix
-                    var turret = EntityFactory.InstantiateEntity(turretId, __result.transform.position, __result, tag, "",
+                    var turret = EntityFactory.InstantiateEntity(PlayerSideId(turretId), __result.transform.position, __result, tag, "",
                         __result.transform, UnitRole.None, hasBeenCalledFromAbove: true, instantiationInfo: "rcm roof turret");
                     if (turret == null) return;
                     // it never counted towards the unit cap, so its death must not count back

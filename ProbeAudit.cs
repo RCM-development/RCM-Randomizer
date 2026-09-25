@@ -257,6 +257,15 @@ namespace RCM_Randomizer
             sb.AppendLine("battle census can read the mixer's swap totals: "
                 + (mixer != null && HarmonyLib.AccessTools.Field(mixer, "UnitSwapCount") != null && HarmonyLib.AccessTools.Field(mixer, "UnitSwapMs") != null));
 
+            // what the mod itself spawns for the player must be a player-side id (see PlayerCopies)
+            foreach (string roof in RoofTurrets.AvailableIds())
+            {
+                string used = RoofTurrets.PlayerSideId(roof);
+                bool ai = false;
+                try { ai = EntityBalancingStore.IsAllowedForAi(used); } catch { }
+                sb.AppendLine($"modspawn roof gun {roof} -> {used} forAi={ai}");
+            }
+
             // Every appended row that borrows another entity's prefab spawns with THAT entity's serialized
             // id unless something stamps ours on - an unstamped salvage foundry came out as the Tier 2 Tank
             // Factory it was copied from. Each active generated row, and whether a stamper covers it.

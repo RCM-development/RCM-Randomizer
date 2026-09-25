@@ -374,6 +374,7 @@ namespace RCM_Randomizer
                 // gated one step up the ladder: not on a brand-new relaxed profile, but early
                 // enough to be met in ordinary play (captured tech, at tier 2, comes later)
                 RoofTurrets.Enabled = _roofTurrets.Value;
+                if (_roofTurrets.Value) RoofTurrets.PrepareCopies(); else PlayerCopies.Deactivate(RoofTurrets.CopyPrefix);
                 RollEngine.HasSecondWeapon = PrefabHasChildTurret;
                 RollEngine.RoofTurretOptions = _roofTurrets.Value && Progression.IsUnlocked(2)
                     ? RoofTurrets.AvailableIds() : new List<string>();
@@ -640,6 +641,7 @@ namespace RCM_Randomizer
             EnemyAI.Enabled = false;
             ShopTweaks.Enabled = false;
             RoofTurrets.Enabled = false;
+            PlayerCopies.Deactivate(RoofTurrets.CopyPrefix);
             EngineerVeterancy.Enabled = false;
             AuraTweaks.Enabled = false;
             RunPacing.Enabled = false;
