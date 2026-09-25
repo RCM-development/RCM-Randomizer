@@ -233,7 +233,60 @@ namespace RCM_Randomizer
             TestMod.RCMManager.Log($"Randomizer: WEAPON STUCK - {entity.entityId}"
                 + (string.IsNullOrEmpty(donor) ? " (stock weapon)" : " <- " + donor)
                 + $" {verdict}. target {target.entityId} at {distance:0.#} cells, weapon range {entity.WeaponRange:0.#},"
-                + $" cooldown {cooldown:0.##}s, held for {holding:0.#}s, aiming={(entity.aiming == null ? "none" : entity.aiming.GetType().Name + "/" + (entity.aiming.IsReady ? "ready" : "not ready"))}");
+                + $" cooldown {cooldown:0.##}s, held for {holding:0.#}s, aiming={(entity.aiming == null ? "none" : entity.aiming.GetType().Name + "/" + (entity.aiming.IsReady ? "ready" : "not ready"))}"
+                + AimingInternals(entity, attack, target));
+        }
+
+        // Why an aiming never reports ready, read off the live objects: the attack drives the aiming it was
+        // BUILT with (EntityAttack._aiming), which must be the unit's current one; each action needs its
+        // own target, an enabled component on an active object, a transform it turns, and turning must
+        // shrink the angle it measures in its own plane. The menu-time simulation of the Grenadier Jeep's
+        // transplanted gun lines up exactly, so the difference has to be one of these.
+        static string AimingInternals(EntityController entity, EntityAttack attack, EntityController target)
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                var driven = attack != null ? attack._aiming : null;
+                sb.Append(" | attack drives ").Append(driven == null ? "nothing" : !driven ? "a DESTROYED aiming" : ReferenceEquals(driven, entity.aiming) ? "the unit's aiming" : "a DIFFERENT aiming " + driven.GetType().Name);
+                var flat = new List<SingleTargetAction>();
+                void Flatten(SingleTargetAction a) { if (a is SerialSingleTargetAction s) { foreach (var x in s.actions) Flatten(x); } else if (a != null) flat.Add(a); }
+                Flatten(entity.aiming);
+                foreach (var a in flat)
+                {
+                    sb.Append(" | ").Append(a.GetType().Name.Replace("SingleTarget", "").Replace("Action", ""))
+                      .Append(" status=").Append(a.status).Append(" enabled=").Append(a.enabled).Append(" active=").Append(a.gameObject.activeInHierarchy)
+                      .Append(" on ").Append(a.gameObject == entity.gameObject ? "unit root" : a.gameObject.name);
+                    if (a is RotateInSingleTargetDirectionAroundAxisAction ax)
+                    {
+                        var t = ax.transformToRotate;
+                        sb.Append(" aimTarget=").Append(ax.target == null ? "none" : ax.target.entityId)
+                          .Append(" degrees=").Append(ax.currentDegrees.ToString("0.#"))
+                          .Append(" speed=").Append(ax.degreesPerSecond).Append(" dir=").Append(ax.direction);
+                        if (t == null) sb.Append(" turns NOTHING");
+                        else
+                        {
+                            var axis = ax.direction == RectTransform.Axis.Vertical ? t.right : t.up;
+                            sb.Append(" turns ").Append(t.name).Append(t.IsChildOf(entity.transform) ? "" : " (NOT under the unit)")
+                              .Append(" active=").Append(t.gameObject.activeInHierarchy)
+                              .Append(" axisTilt=").Append(Vector3.Angle(axis, ax.direction == RectTransform.Axis.Vertical ? entity.transform.right : entity.transform.up).ToString("0"));
+                            if (target != null)
+                            {
+                                var v = (target.Position - t.position).normalized;
+                                var side = Vector3.Cross(axis, t.forward);
+                                var fwd = Vector3.Cross(side, axis);
+                                float left = Mathf.Atan2(Vector3.Dot(v, side), Vector3.Dot(v, fwd)) * Mathf.Rad2Deg;
+                                sb.Append(" leftToTurn=").Append(left.ToString("0.#"));
+                            }
+                        }
+                    }
+                    else if (a is RotateInSingleTargetDirectionAction d)
+                        sb.Append(" turns ").Append(d.transformToRotate == null ? "NOTHING" : d.transformToRotate.name);
+                }
+                sb.Append($" | timeScale={Time.timeScale} fixedDt={Time.fixedDeltaTime}");
+                return sb.ToString();
+            }
+            catch (Exception e) { return " | internals failed: " + e.Message; }
         }
 
         // the enemy list the game's own targeting walks (EntityAttack.EnemiesWithinRange), nearest first

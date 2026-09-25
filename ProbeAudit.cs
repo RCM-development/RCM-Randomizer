@@ -77,6 +77,87 @@ namespace RCM_Randomizer
             WriteSpawnSides(Path.ChangeExtension(path, null) + "Spawns.tsv");
             WriteSideFixTest(Path.ChangeExtension(path, null) + "SideFix.txt", donorOf);
             WriteMuzzles(Path.ChangeExtension(path, null) + "Muzzles.txt", donorOf);
+            WriteAimTest(Path.ChangeExtension(path, null) + "Aim.txt", donorOf);
+        }
+
+        // The real swap, run at the menu: the mixer's Init prefix on a dormant host, then the transplanted
+        // aiming driven with the game's own RotateTo toward eight targets around the unit. An around-axis
+        // action reports ready only when the angle left in its own plane drops below one step, so the
+        // residual is the number that decides whether the gun ever fires ("Grenadier 4x4 (A Tank)":
+        // target at 1 cell for 12s, aiming never ready).
+        static void WriteAimTest(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder("host <- donor | action transform axis | axis tilt from host up | worst residual deg over 8 targets | per target\n");
+            var mixer = HarmonyLib.AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
+            var initType = mixer != null ? HarmonyLib.AccessTools.Inner(mixer, "Patch_EntityController_Init") : null;
+            var prefix = initType != null ? HarmonyLib.AccessTools.Method(initType, "Prefix") : null;
+            var rotateTo = HarmonyLib.AccessTools.Method(typeof(RotateInSingleTargetDirectionAroundAxisAction), "RotateTo");
+            var angleOff = HarmonyLib.AccessTools.Method(typeof(RotateInSingleTargetDirectionAroundAxisAction), "AngleOffAroundAxis");
+            if (prefix == null || rotateTo == null || angleOff == null) { File.WriteAllText(path, "swap entry or aiming methods not found\n"); return; }
+            var hosts = new System.Collections.Generic.List<(string host, string donor)>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string d = null;
+                try { d = donorOf?.Invoke(row.entityId); } catch { }
+                if (!string.IsNullOrEmpty(d) && !hosts.Exists(h => h.host == row.entityId)) hosts.Add((row.entityId, d));
+            }
+            foreach (var (host, donor) in hosts)
+            {
+                UnityEngine.GameObject prefab = null, dormant = null;
+                bool was = true;
+                try
+                {
+                    prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(host)) as UnityEngine.GameObject;
+                    if (prefab == null) continue;
+                    was = prefab.activeSelf;
+                    prefab.SetActive(false);
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    prefab.SetActive(was);
+                    var c = dormant.GetComponent<EntityController>();
+                    c.entityId = host;
+                    prefix.Invoke(null, new object[] { c, null });
+                    var flat = new System.Collections.Generic.List<SingleTargetAction>();
+                    void Flatten(SingleTargetAction a) { if (a is SerialSingleTargetAction s) { foreach (var x in s.actions) Flatten(x); } else if (a != null) flat.Add(a); }
+                    Flatten(c.aiming);
+                    var root = dormant.transform;
+                    var axes = flat.FindAll(a => a is RotateInSingleTargetDirectionAroundAxisAction ax0 && ax0.transformToRotate != null)
+                                   .ConvertAll(a => (RotateInSingleTargetDirectionAroundAxisAction)a);
+                    var worst = new float[axes.Count];
+                    var per = new System.Collections.Generic.List<string>[axes.Count];
+                    for (int i = 0; i < axes.Count; i++) per[i] = new System.Collections.Generic.List<string>();
+                    UnityEngine.Vector3 AxisOf(RotateInSingleTargetDirectionAroundAxisAction ax) => ax.direction == UnityEngine.RectTransform.Axis.Vertical ? ax.transformToRotate.right : ax.transformToRotate.up;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        float ang = k * 45f * UnityEngine.Mathf.Deg2Rad;
+                        // 3 cells out on the ground plane: close enough to matter, far enough that the barrel's
+                        // own pitch limits are what they are in a fight
+                        var targetPos = root.position + new UnityEngine.Vector3(UnityEngine.Mathf.Sin(ang), 0f, UnityEngine.Mathf.Cos(ang)) * 30f;
+                        // every action of the unit each step, turret before barrel, as the game runs them
+                        for (int step = 0; step < 300; step++)
+                            foreach (var ax in axes) rotateTo.Invoke(ax, new object[] { targetPos });
+                        for (int i = 0; i < axes.Count; i++)
+                        {
+                            var t = axes[i].transformToRotate;
+                            float residual = (float)angleOff.Invoke(null, new object[] { (targetPos - t.position).normalized, t.forward, AxisOf(axes[i]), false });
+                            worst[i] = UnityEngine.Mathf.Max(worst[i], UnityEngine.Mathf.Abs(residual));
+                            per[i].Add(residual.ToString("0.#", CultureInfo.InvariantCulture));
+                        }
+                    }
+                    for (int i = 0; i < axes.Count; i++)
+                    {
+                        var ax = axes[i];
+                        float tilt = UnityEngine.Vector3.Angle(AxisOf(ax), ax.direction == UnityEngine.RectTransform.Axis.Vertical ? AxisOf(ax) : root.up);
+                        sb.AppendLine($"{host} <- {donor} | {ax.transformToRotate.name} {ax.direction} speed={ax.degreesPerSecond} arc={ax.minDegrees}..{ax.maxDegrees} | tilt {tilt:0.#} | worst {worst[i]:0.#} | {string.Join(" ", per[i])}");
+                    }
+                }
+                catch (Exception e) { sb.AppendLine($"{host} <- {donor} FAILED {(e.InnerException ?? e).Message}"); }
+                finally
+                {
+                    if (prefab != null) prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            File.WriteAllText(path, sb.ToString());
         }
 
         // The swap keeps only the donor's turret pivot subtree; the donor clone is destroyed after. A
@@ -124,6 +205,17 @@ namespace RCM_Randomizer
                     }
                     if (shots.Count == 0) sb.AppendLine($"{donor}\t{(pivot != null ? pivot.name : "-")}\t(no ShootProjectile)\t-\t{string.Join(",", entry.Value)}");
                     sb.AppendLine($"  donor aiming {(c?.aiming != null ? c.aiming.GetType().Name : "none")} melee={c?.melee}");
+                    var flat = new System.Collections.Generic.List<SingleTargetAction>();
+                    void Flatten(SingleTargetAction a) { if (a is SerialSingleTargetAction s) { foreach (var x in s.actions) Flatten(x); } else if (a != null) flat.Add(a); }
+                    Flatten(c?.aiming);
+                    foreach (var a in flat)
+                    {
+                        if (a is RotateInSingleTargetDirectionAroundAxisAction ax)
+                            sb.AppendLine($"    around-axis {ax.transformToRotate?.name} dir={ax.direction} speed={ax.degreesPerSecond} min={ax.minDegrees} max={ax.maxDegrees} localRot={ax.transformToRotate?.localEulerAngles} up={ax.transformToRotate?.up}");
+                        else if (a is RotateInSingleTargetDirectionAction d)
+                            sb.AppendLine($"    direction {d.transformToRotate?.name} speed={d.degreesPerSecond}");
+                        else sb.AppendLine($"    {a.GetType().Name}");
+                    }
                     // the attack is built from the HOST's own settings, only aiming and melee come from the donor
                     foreach (string host in entry.Value)
                     {
