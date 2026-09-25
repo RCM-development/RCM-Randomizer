@@ -29,6 +29,10 @@ namespace RCM_Randomizer
                 Summarise(sb, "engineers", EngineerBalancingStore._engineerBalancingScriptableObject.parameters.Select(r => (r.engineerId, r.neededExperienceLevel, r.inactive)));
                 Summarise(sb, "specialists", SpecialistBalancingStore._specialistBalancingScriptableObject.parameters.Select(r => (r.specialistId, r.neededExperienceLevel, r.inactive)));
                 Summarise(sb, "economies", EconomyBalancingStore._economyBalancingScriptableObject.parameters.Select(r => (r.refineryId, r.neededExperienceLevel, r.inactive)));
+                sb.AppendLine("# run-setup choices (active), in unlock order: kind | id Llevel (vanilla Llevel when moved)");
+                sb.AppendLine("    engineers | " + string.Join(", ", EngineerBalancingStore._engineerBalancingScriptableObject.parameters.Where(r => !r.inactive).OrderBy(r => r.neededExperienceLevel).Select(r => r.engineerId + " L" + r.neededExperienceLevel + SetupUnlocks.Was(r.engineerId))));
+                sb.AppendLine("    specialists | " + string.Join(", ", SpecialistBalancingStore._specialistBalancingScriptableObject.parameters.Where(r => !r.inactive).OrderBy(r => r.neededExperienceLevel).Select(r => r.specialistId + " L" + r.neededExperienceLevel + SetupUnlocks.Was(r.specialistId))));
+                sb.AppendLine("    economies | " + string.Join(", ", EconomyBalancingStore._economyBalancingScriptableObject.parameters.Where(r => !r.inactive).OrderBy(r => r.neededExperienceLevel).Select(r => r.refineryId + " L" + r.neededExperienceLevel + SetupUnlocks.Was(r.refineryId))));
 
                 sb.AppendLine("# hacks by rarity and level (general, active): rarity | count | levels");
                 foreach (var group in relics.Where(r => !r.isForSpecialists && !r.inactive && !GeneratedHacks.IsGenerated(r.relicId)).GroupBy(r => r.rarity).OrderBy(g => g.Key))

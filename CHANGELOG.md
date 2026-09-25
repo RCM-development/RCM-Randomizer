@@ -1,6 +1,10 @@
 # Changelog
 
 
+## Unreleased
+
+- **Engineers, specialists and economies unlock across the whole track.** The game hands out nearly all of them before level 10 (every economy by 15, every specialist by 21). Each kind now keeps its default and spreads the rest evenly up to level 45 in the game's own order, never earlier than vanilla: specialists at 10 / 15 / 20 / 26 / 31 / 36 / 41, economies at 21 / 33 / 45, engineers at 25 / 43 - together something new every few levels. A choice already picked on a profile that is now above its level falls back to the first available one on the run-setup screen. Settings: `Progression.SpreadSetupUnlocks` (on), `Progression.SetupUnlockTop` (45).
+
 ## 0.9.4 — 2026-09-24
 
 ### In short
