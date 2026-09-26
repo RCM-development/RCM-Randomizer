@@ -41,7 +41,8 @@ namespace RCM_Randomizer
             try
             {
                 if (Loca.BlueprintNameDictionary.Count < 1) Loca.Init();
-                var dict = Loca.BlueprintNameDictionary.TryGetValue("en", out var en) ? en : Loca.BlueprintNameDictionary.Values.FirstOrDefault();
+                // the English table is "en-US" (Loca.DefaultLanguage); there is no "en"
+                var dict = Loca.BlueprintNameDictionary.TryGetValue(Loca.DefaultLanguage, out var en) ? en : Loca.BlueprintNameDictionary.Values.FirstOrDefault();
                 if (dict != null && dict.TryGetValue(key, out name)) return name;
             }
             catch { }
@@ -56,18 +57,32 @@ namespace RCM_Randomizer
             {
                 var dict = language.Value;
                 var originals = new Dictionary<string, string>(dict);
-                if (language.Key == "en" || OriginalNames.Count == 0)
-                    foreach (var entry in originals) if (!OriginalNames.ContainsKey(entry.Key)) OriginalNames[entry.Key] = entry.Value;
+                VanillaNames[language.Key] = originals;
+                // English wins (a table seen first in another language is overwritten by it); the dict is
+                // vanilla here, RestoreNames has just run
+                if (language.Key == Loca.DefaultLanguage) foreach (var entry in originals) OriginalNames[entry.Key] = entry.Value;
+                else if (OriginalNames.Count == 0) foreach (var entry in originals) OriginalNames[entry.Key] = entry.Value;
                 var vanilla = new HashSet<string>(originals.Values.Select(Norm));
                 var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // The player's unit and its enemy twin (FlameArrow / FlameArrowAI) share a name; given the
+                // same weapon they are the same thing and get the same new name. Without this the second
+                // found its name taken and fell back to brackets: "Cannon Arrow" on your side,
+                // "Flame Arrow (Cannon)" on the enemy's.
+                var twins = new Dictionary<string, string>();
                 var saved = new Dictionary<string, string>();
                 foreach (var pair in donorMap.OrderBy(p => p.Key, StringComparer.Ordinal))
                 {
                     string baseKey = LocaKey(pair.Key);
                     if (!originals.TryGetValue(baseKey, out string baseName)) continue;
                     if (!originals.TryGetValue(LocaKey(pair.Value), out string donorName)) continue;
-                    string mixed = MixName(baseName, donorName, vanilla, taken, MixedDescriptions.WeaponHint(pair.Value));
-                    if (mixed == null) continue;
+                    string hint = MixedDescriptions.WeaponHint(pair.Value);
+                    string twinKey = baseName + "\n" + donorName + "\n" + hint;
+                    if (!twins.TryGetValue(twinKey, out string mixed))
+                    {
+                        mixed = MixName(baseName, donorName, vanilla, taken, hint);
+                        if (mixed == null) continue;
+                        twins[twinKey] = mixed;
+                    }
                     taken.Add(mixed);
                     saved[baseKey] = baseName;
                     dict[baseKey] = mixed;
@@ -169,8 +184,198 @@ namespace RCM_Randomizer
             return words;
         }
 
+        // ---- Factory names ---------------------------------------------------------------------
+        // A factory card's name is its own loca entry, written out in full ("Grenadier 4x4 Factory"),
+        // not built from the unit's: renaming the unit left every factory card, build button and
+        // selection panel calling it by the weapon it no longer has. Runs LAST, after the brawler layer
+        // ("Armed ..."), so a factory reads exactly what its unit's card reads; the unit's vanilla name
+        // inside the factory's vanilla name is replaced by the unit's current one, per language.
+        static readonly Dictionary<string, Dictionary<string, string>> VanillaNames = new Dictionary<string, Dictionary<string, string>>();
+        static readonly Dictionary<string, Dictionary<string, string>> SavedFactoryNames = new Dictionary<string, Dictionary<string, string>>();
+
+        public static string VanillaName(string language, string entityId)
+            => VanillaNames.TryGetValue(language, out var dict) && dict.TryGetValue(LocaKey(entityId), out string name) ? name : null;
+
+        // every card that builds the unit: rows naming it as their product, and the mod's own
+        // foundry map (salvage and titan foundries)
+        public static List<string> FactoriesOf(string unitId)
+        {
+            var ids = new List<string>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+                if (row.factoryForEntityId.hasValue && row.factoryForEntityId.value == unitId) ids.Add(row.entityId);
+            string mapped = EntityBalancingStore.FactoryEntityId(unitId);
+            if (mapped != null && !ids.Contains(mapped)) ids.Add(mapped);
+            return ids;
+        }
+
+        public static void ApplyFactoryNames(Dictionary<string, string> donorMap)
+        {
+            RestoreFactoryNames();
+            if (donorMap == null) return;
+            var renamed = new List<string>();
+            foreach (var host in donorMap.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            {
+                var factories = FactoriesOf(host);
+                if (factories.Count < 1) continue;
+                foreach (var language in Loca.BlueprintNameDictionary)
+                {
+                    var dict = language.Value;
+                    string vanillaUnit = VanillaName(language.Key, host);
+                    if (string.IsNullOrEmpty(vanillaUnit) || !dict.TryGetValue(LocaKey(host), out string current) || current == vanillaUnit) continue;
+                    foreach (string factory in factories)
+                    {
+                        string key = LocaKey(factory);
+                        string vanillaFactory = VanillaName(language.Key, factory);
+                        if (vanillaFactory == null || !dict.TryGetValue(key, out string shown) || shown != vanillaFactory) continue;
+                        int at = vanillaFactory.IndexOf(vanillaUnit, StringComparison.Ordinal);
+                        if (at < 0) continue;
+                        if (!SavedFactoryNames.TryGetValue(language.Key, out var saved)) SavedFactoryNames[language.Key] = saved = new Dictionary<string, string>();
+                        saved[key] = vanillaFactory;
+                        dict[key] = vanillaFactory.Substring(0, at) + current + vanillaFactory.Substring(at + vanillaUnit.Length);
+                        if (language.Key == Loca.DefaultLanguage) renamed.Add(dict[key]);
+                    }
+                }
+            }
+            if (renamed.Count > 0) TestMod.RCMManager.Log("Randomizer: factory names follow their units -> " + string.Join(", ", renamed));
+        }
+
+        static void RestoreFactoryNames()
+        {
+            foreach (var language in SavedFactoryNames)
+            {
+                if (!Loca.BlueprintNameDictionary.TryGetValue(language.Key, out var dict)) continue;
+                foreach (var entry in language.Value) dict[entry.Key] = entry.Value;
+            }
+            SavedFactoryNames.Clear();
+        }
+
+        // ---- Names inside other texts ----------------------------------------------------------
+        // Relic and upgrade texts, specialist names and in-game messages spell units out by name
+        // too: the Support Tank specialist's relic is called "Support Tank", a Commando Tank hack
+        // speaks of "The Commando Tank Foundry", a wave is announced as "PCX Dragon Bug Brigade".
+        // Once per apply cycle, after every other writer of those tables (rolls, generated hacks,
+        // specialist hacks), a renamed unit's vanilla name is replaced there by its current one, as
+        // whole words and never inside a longer unit name ("Cannon Turret" in "Double Cannon Turret").
+        // Left alone: the tutorial and the roadmap (they describe the vanilla game), blueprint names
+        // (factories are done above; the rest are other units, and mixed names that NAME a donor by
+        // its vanilla name mean that donor's gun) and blueprint descriptions (the mod's own layers).
+        // Restore only puts back what still reads as written, so a layer that rewrote an entry
+        // afterwards keeps its own text.
+        public struct TextEdit { public Dictionary<string, string> Table; public string Language, TableName, Key, Original, Written; }
+        public static readonly List<TextEdit> TextEdits = new List<TextEdit>();
+        // what the last pass renamed, per language (vanilla -> current), for the audit
+        public static readonly Dictionary<string, Dictionary<string, string>> LastRenames = new Dictionary<string, Dictionary<string, string>>();
+        public static List<string> VanillaNameValues(string language)
+            => VanillaNames.TryGetValue(language, out var dict) ? dict.Values.Where(v => !string.IsNullOrEmpty(v)).Distinct().ToList() : new List<string>();
+
+        public static IEnumerable<KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>> ReferenceTables()
+        {
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("RelicName", Loca.RelicNameDictionary);
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("RelicDescription", Loca.RelicDescriptionDictionary);
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("UpgradeName", Loca.UpgradeNameDictionary);
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("UpgradeDescription", Loca.UpgradeDescriptionDictionary);
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("SkillDescription", Loca.SkillDescriptionDictionary);
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("Global", Loca.GlobalDictionary);
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("SystemName", Loca.SystemNameDictionary);
+            yield return new KeyValuePair<string, Dictionary<string, Dictionary<string, string>>>("SystemDescription", Loca.SystemDescriptionDictionary);
+        }
+
+        public static int ApplyTextReferences(Dictionary<string, string> donorMap)
+        {
+            RestoreTextReferences();
+            LastRenames.Clear();
+            if (donorMap == null || donorMap.Count < 1) return 0;
+            int edits = 0;
+            foreach (var language in Loca.BlueprintNameDictionary)
+            {
+                if (!VanillaNames.TryGetValue(language.Key, out var vanillaNames)) continue;
+                // vanilla name -> current name. Twins sharing a vanilla name (FlameArrow, FlameArrowAI)
+                // speak through the player's card; if that one is unchanged, the name means it and stays.
+                // The speaker is chosen among ALL units carrying the name, mixed or not: when only the
+                // enemy's Homing Missile Turret is mixed, the name in a text still means the player's.
+                var renames = new Dictionary<string, string>(StringComparer.Ordinal);
+                var renamedVanilla = new HashSet<string>(donorMap.Keys.Where(h => vanillaNames.ContainsKey(LocaKey(h))).Select(h => vanillaNames[LocaKey(h)]), StringComparer.Ordinal);
+                foreach (var group in EntityBalancingStore.EntityBalancingParametersList.Select(r => r.entityId)
+                             .Where(id => vanillaNames.TryGetValue(LocaKey(id), out string v) && renamedVanilla.Contains(v))
+                             .GroupBy(id => vanillaNames[LocaKey(id)], StringComparer.Ordinal))
+                {
+                    string speaker = group.OrderByDescending(h => SafeBool(() => EntityBalancingStore.IsAllowedAsBlueprint(h)))
+                                          .ThenByDescending(h => donorMap.ContainsKey(h))
+                                          .ThenBy(h => h, StringComparer.Ordinal).First();
+                    if (!language.Value.TryGetValue(LocaKey(speaker), out string current) || current == group.Key) continue;
+                    if (string.IsNullOrWhiteSpace(group.Key) || group.Key.Length < 4) continue;
+                    renames[group.Key] = current;
+                }
+                LastRenames[language.Key] = renames;
+                if (renames.Count < 1) continue;
+                var allNames = vanillaNames.Values.Where(v => !string.IsNullOrEmpty(v)).Distinct().ToList();
+                // ONE pass over each text with every name in it (longest first, so the alternation takes
+                // the longest at a position): a new name is never searched again, or "Incinerator" would
+                // be renamed a second time inside "Armed Incinerator Mantis Mech". A match that is part of
+                // a longer unit name ("Cannon Turret" in "Double Cannon Turret") stays as it is.
+                var ordered = renames.Keys.OrderByDescending(k => k.Length).ToList();
+                // an English article in front is taken along, to agree with the new name's first letter:
+                // "produce a Crystal Harvester" -> "produce an Armed Defender Hunter Crystal Harvester"
+                bool english = language.Key.StartsWith("en", StringComparison.Ordinal);
+                var pattern = new System.Text.RegularExpressions.Regex((english ? @"(?<art>\b[Aa]n? )?" : "") + @"(?<![\w-])(?<name>"
+                    + string.Join("|", ordered.Select(System.Text.RegularExpressions.Regex.Escape)) + @")(?![\w-])");
+                // the new names count as longer names too: a text another layer wrote from an already
+                // renamed one ("Scout Cruiser Support Tank") must not be renamed again
+                var longer = ordered.ToDictionary(k => k, k => allNames.Concat(renames.Values).Where(n => n.Length > k.Length && n.Contains(k)).ToList());
+                foreach (var table in ReferenceTables())
+                {
+                    if (table.Value == null || !table.Value.TryGetValue(language.Key, out var entries)) continue;
+                    foreach (var key in entries.Keys.ToList())
+                    {
+                        string text = entries[key];
+                        if (string.IsNullOrEmpty(text) || !ordered.Any(n => text.IndexOf(n, StringComparison.Ordinal) >= 0)) continue;
+                        string result = pattern.Replace(text, m =>
+                        {
+                            var name = m.Groups["name"];
+                            if (CoveredByLonger(text, name.Index, name.Length, longer[name.Value])) return m.Value;
+                            string renamed = renames[name.Value];
+                            var art = m.Groups["art"];
+                            if (!art.Success) return renamed;
+                            string article = "AEIOUaeiou".IndexOf(renamed[0]) >= 0 ? "an " : "a ";
+                            if (char.IsUpper(art.Value[0])) article = char.ToUpperInvariant(article[0]) + article.Substring(1);
+                            return article + renamed;
+                        });
+                        if (result == text) continue;
+                        entries[key] = result;
+                        TextEdits.Add(new TextEdit { Table = entries, Language = language.Key, TableName = table.Key, Key = key, Original = text, Written = result });
+                        edits++;
+                    }
+                }
+            }
+            return edits;
+        }
+
+        public static bool CoveredByLonger(string text, int at, int length, List<string> longerNames)
+        {
+            foreach (string name in longerNames)
+            {
+                for (int i = text.IndexOf(name, StringComparison.Ordinal); i >= 0; i = text.IndexOf(name, i + 1, StringComparison.Ordinal))
+                    if (i <= at && i + name.Length >= at + length) return true;
+            }
+            return false;
+        }
+
+        static bool SafeBool(Func<bool> f) { try { return f(); } catch { return false; } }
+
+        public static void RestoreTextReferences()
+        {
+            for (int i = TextEdits.Count - 1; i >= 0; i--)
+            {
+                var edit = TextEdits[i];
+                if (edit.Table.TryGetValue(edit.Key, out string now) && now == edit.Written) edit.Table[edit.Key] = edit.Original;
+            }
+            TextEdits.Clear();
+        }
+
         public static void RestoreNames()
         {
+            RestoreTextReferences();
+            RestoreFactoryNames();
             foreach (var language in SavedNames)
             {
                 if (!Loca.BlueprintNameDictionary.TryGetValue(language.Key, out var dict)) continue;

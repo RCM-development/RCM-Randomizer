@@ -82,8 +82,11 @@ namespace RCM_Randomizer
                         else if (!renamed && !string.IsNullOrEmpty(donor)) problem = "carries " + donor + " but keeps its plain name";
                         else if (shown.Split(' ').GroupBy(w => w, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1 && g.Key.Length > 2)) problem = "a word repeats";
                         // duplicates the GAME ships (its AI copies, every tree called "Obstacle") are not ours;
-                        // only a name this mod wrote has to be unique
-                        else if (renamed && seen.TryGetValue(shown, out string other) && other != unit) problem = "same name as " + other;
+                        // only a name this mod wrote has to be unique - except between such twins: the same
+                        // unit with the same donor is the same thing on both sides (FlameArrow/FlameArrowAI)
+                        else if (renamed && seen.TryGetValue(shown, out string other) && other != unit
+                                 && !(MixedUnitPresentation.BaseName(other) == original && donorOf?.Invoke(other) == donor))
+                            problem = "same name as " + other;
                         if (renamed) seen[shown] = unit;
                         if (!string.IsNullOrEmpty(donor) && renamed) mixedNames.Add($"{original,-26} <- {MixedUnitPresentation.BaseName(donor) ?? donor,-26} => {shown}");
                         if (problem == null) continue;

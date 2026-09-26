@@ -356,7 +356,7 @@ namespace RCM_Randomizer
                     // the same order as the first apply: names and descriptions, the brawler layer on top, then
                     // the roll labels appended - a label ("Roof gun: ... fires on its own") appended first would
                     // read as a weapon sentence to the description rewrite
-                    if (_donorMap != null) { ArmedBrawlers.Restore(); MixedUnitPresentation.ApplyMixedNames(_donorMap); MixedDescriptions.Apply(_donorMap); ArmedBrawlers.Apply(_donorMap); }
+                    if (_donorMap != null) { ArmedBrawlers.Restore(); MixedUnitPresentation.ApplyMixedNames(_donorMap); MixedDescriptions.Apply(_donorMap); ArmedBrawlers.Apply(_donorMap); MixedUnitPresentation.ApplyFactoryNames(_donorMap); ApplyNameReferences(); }
                     ApplyDropDescSuffixes();
                     return;
                 }
@@ -430,6 +430,7 @@ namespace RCM_Randomizer
                     int? traitId = EngineerTraits.Apply(seed, luck, RegisterChangesQuietly, SetLocaText);
                     if (traitId.HasValue) _appliedChangeIds.Add(traitId.Value);
                 }
+                ApplyNameReferences(); // last of the text writers: relic, upgrade and hack texts are all in place
                 // ONE cache refresh for the whole batch: registering each change individually
                 // rebuilt every cached card ~270 times in a single frame, a hard stutter at
                 // run start in PerRun mode (PerSave hid it in the menu)
@@ -614,10 +615,21 @@ namespace RCM_Randomizer
             if (roofed.Count > 0) RCMManager.Log("Randomizer: roof turrets -> " + string.Join(", ", roofed.ToArray()));
         }
 
+        // a renamed unit's old name, wherever else the game spells it out (relics, upgrades, messages)
+        void ApplyNameReferences()
+        {
+            if (_donorMap == null) { MixedUnitPresentation.RestoreTextReferences(); return; }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            int edits = MixedUnitPresentation.ApplyTextReferences(_donorMap);
+            RCMManager.Log($"Randomizer: renamed units in other texts -> {edits} entries ({clock.ElapsedMilliseconds} ms)");
+        }
+
         void RemoveRolls()
         {
             // first: everything below and the next apply read "original" values from the rows
             WeaponRows.Restore();
+            MixedUnitPresentation.RestoreTextReferences(); // before the layers underneath restore their own texts
+
             bool hadChanges = _appliedChangeIds.Count > 0;
             foreach (int id in _appliedChangeIds)
             {
@@ -1027,6 +1039,7 @@ namespace RCM_Randomizer
             MixedUnitPresentation.ApplyMixedNames(_donorMap);
             MixedDescriptions.Apply(_donorMap); // the card text follows the weapon, like the name
             ArmedBrawlers.Apply(_donorMap);
+            MixedUnitPresentation.ApplyFactoryNames(_donorMap); // last: a factory reads what its unit's card reads
             MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns
             _turretStatus = $"{_donorMap.Count}/{supported.Count} pairs";
         }

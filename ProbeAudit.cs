@@ -80,6 +80,127 @@ namespace RCM_Randomizer
             WriteAimTest(Path.ChangeExtension(path, null) + "Aim.txt", donorOf);
             WriteAnimations(Path.ChangeExtension(path, null) + "Anim.txt", donorOf);
             WriteMixedTexts(Path.ChangeExtension(path, null) + "MixedTexts.txt", donorOf);
+            WriteNameRefs(Path.ChangeExtension(path, null) + "Names.txt", donorOf);
+        }
+
+        // Every place a renamed unit is still called by its old name. A unit's name is one loca entry,
+        // but other entries spell it out in full - a factory card is "Grenadier 4x4 Factory", not a
+        // reference to the unit - so each game text table is searched for each renamed unit's vanilla
+        // name. Factory cards must read their unit's current name in every language (counted as STALE
+        // otherwise); anything else found in English is listed for review. Brackets naming a DONOR by
+        // its vanilla name ("Missile Mech (Railgun Turret)") are right - that is the gun it carries.
+        static void WriteNameRefs(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            var tables = typeof(Loca).GetFields(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)
+                .Where(f => f.FieldType == typeof(System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>>))
+                .Select(f => new { f.Name, Dict = (System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>>)f.GetValue(null) })
+                .Where(t => t.Dict != null).ToList();
+            var hosts = new System.Collections.Generic.Dictionary<string, string>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string donor = null;
+                try { donor = donorOf?.Invoke(row.entityId); } catch { }
+                if (!string.IsNullOrEmpty(donor)) hosts[row.entityId] = donor;
+            }
+            var hostKeys = new System.Collections.Generic.HashSet<string>(hosts.Keys.Select(h => h.Trim().ToLowerInvariant()));
+            int stale = 0, factoriesOk = 0, refs = 0;
+            foreach (string language in Loca.AvailableLanguages)
+            {
+                if (!Loca.BlueprintNameDictionary.TryGetValue(language, out var names)) continue;
+                bool english = language == Loca.DefaultLanguage;
+                foreach (var host in hosts.Keys.OrderBy(k => k, StringComparer.Ordinal))
+                {
+                    string key = host.Trim().ToLowerInvariant();
+                    string vanilla = MixedUnitPresentation.VanillaName(language, host);
+                    if (string.IsNullOrEmpty(vanilla) || !names.TryGetValue(key, out string current) || current == vanilla) continue;
+                    var factories = MixedUnitPresentation.FactoriesOf(host);
+                    var factoryKeys = new System.Collections.Generic.HashSet<string>(factories.Select(f => f.Trim().ToLowerInvariant()));
+                    foreach (string factory in factories)
+                    {
+                        string fKey = factory.Trim().ToLowerInvariant();
+                        string fVanilla = MixedUnitPresentation.VanillaName(language, factory) ?? "";
+                        names.TryGetValue(fKey, out string fShown);
+                        bool named = fVanilla.Contains(vanilla);
+                        bool ok = !named || (fShown ?? "").Contains(current);
+                        if (!ok) stale++; else if (named) factoriesOk++;
+                        if (english || !ok)
+                            sb.AppendLine($"{(ok ? "factory" : "STALE factory")} [{language}] {host} \"{current}\" <- {factory} \"{fShown}\" (vanilla \"{fVanilla}\"{(named ? "" : ", unit name not in it")})");
+                    }
+                    if (!english) continue;
+                    // every other English entry that spells the old name out as whole words, outside the
+                    // tables the rename pass owns (those are checked below). Classified: a donor named by
+                    // its vanilla name inside another mixed card is right; unused loca keys (no card) and
+                    // the tutorial/roadmap are left alone on purpose; the rest is for review.
+                    var pattern = new System.Text.RegularExpressions.Regex(@"(?<![\w-])" + System.Text.RegularExpressions.Regex.Escape(vanilla) + @"(?![\w-])");
+                    var owned = new System.Collections.Generic.HashSet<object>(MixedUnitPresentation.ReferenceTables().Select(t => (object)t.Value));
+                    var longerNames = MixedUnitPresentation.VanillaNameValues(language).Where(n => n.Length > vanilla.Length && n.Contains(vanilla)).ToList();
+                    foreach (var table in tables)
+                    {
+                        if (owned.Contains(table.Dict) || !table.Dict.TryGetValue(language, out var entries)) continue;
+                        bool isNames = ReferenceEquals(entries, names);
+                        foreach (var entry in entries)
+                        {
+                            if (entry.Value == null) continue;
+                            var match = pattern.Matches(entry.Value).Cast<System.Text.RegularExpressions.Match>()
+                                .FirstOrDefault(m => !MixedUnitPresentation.CoveredByLonger(entry.Value, m.Index, m.Length, longerNames));
+                            if (match == null) continue;
+                            if (isNames && (entry.Key == key || factoryKeys.Contains(entry.Key))) continue;
+                            string kind;
+                            if (isNames && (hostKeys.Contains(entry.Key) || hosts.Keys.Any(h => MixedUnitPresentation.FactoriesOf(h).Any(f => f.Trim().ToLowerInvariant() == entry.Key)))) kind = "donor-ref";
+                            // an unmixed twin keeps the name (the player's Homing Missile Turret when only the enemy's is mixed)
+                            else if (isNames && entry.Value == vanilla) kind = "twin";
+                            else if (table.Dict == Loca.BlueprintDescriptionDictionary && hostKeys.Contains(entry.Key)) kind = "donor-ref";
+                            else if ((isNames || table.Dict == Loca.BlueprintDescriptionDictionary) && !EntityBalancingStore.EntityBalancingParametersList.Any(r => r.entityId.Trim().ToLowerInvariant() == entry.Key)) kind = "unused";
+                            else if (table.Name.StartsWith("Tutorial") || table.Name.StartsWith("Roadmap") || table.Name.StartsWith("MetaProgression")) kind = "kept";
+                            else { kind = "REF"; refs++; }
+                            sb.AppendLine($"{kind} {host} \"{vanilla}\" -> \"{current}\" found in {table.Name}[{entry.Key}]: {entry.Value.Replace("\n", " / ")}");
+                        }
+                    }
+                }
+            }
+            // the tables the rename pass owns: after it, no renamed unit's old name may be left there as
+            // a whole name of its own, in any language
+            int staleTexts = 0;
+            foreach (var language in MixedUnitPresentation.LastRenames)
+            {
+                var all = MixedUnitPresentation.VanillaNameValues(language.Key);
+                foreach (var rename in language.Value)
+                {
+                    var pattern = new System.Text.RegularExpressions.Regex(@"(?<![\w-])" + System.Text.RegularExpressions.Regex.Escape(rename.Key) + @"(?![\w-])");
+                    var longerNames = all.Where(n => n.Length > rename.Key.Length && n.Contains(rename.Key)).ToList();
+                    foreach (var table in MixedUnitPresentation.ReferenceTables())
+                    {
+                        if (table.Value == null || !table.Value.TryGetValue(language.Key, out var entries)) continue;
+                        foreach (var entry in entries)
+                        {
+                            if (entry.Value == null || entry.Value.IndexOf(rename.Key, StringComparison.Ordinal) < 0) continue;
+                            // the new name may contain the old one ("Support Tank" in "Scout Cruiser Support Tank")
+                            // ...and so may any other new name that names a donor ("Armed Defender Hunter Crystal Harvester")
+                            var longerHere = longerNames.Concat(language.Value.Values).Where(n => n.Length > rename.Key.Length && n.Contains(rename.Key)).ToList();
+                            if (!pattern.Matches(entry.Value).Cast<System.Text.RegularExpressions.Match>().Any(m => !MixedUnitPresentation.CoveredByLonger(entry.Value, m.Index, m.Length, longerHere))) continue;
+                            staleTexts++;
+                            sb.AppendLine($"STALE text [{language.Key}] {table.Key}[{entry.Key}] still says \"{rename.Key}\" (now \"{rename.Value}\"): {entry.Value.Replace("\n", " / ")}");
+                        }
+                    }
+                }
+            }
+            foreach (var edit in MixedUnitPresentation.TextEdits.Where(e => e.Language == Loca.DefaultLanguage))
+                sb.AppendLine($"renamed {edit.TableName}[{edit.Key}]: \"{edit.Original.Replace("\n", " / ")}\" -> \"{edit.Written.Replace("\n", " / ")}\"");
+            sb.Insert(0, $"{MixedUnitPresentation.TextEdits.Count} text entries renamed in all languages, {staleTexts} stale texts\n");
+            // the mod's own copies (salvage, captured, roof, titans) name themselves from BaseName: list
+            // them with what they build, so a copy of a renamed unit is seen next to it
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (!row.entityId.StartsWith("rcmgen_", StringComparison.Ordinal)) continue;
+                string donor = null;
+                try { donor = donorOf?.Invoke(row.entityId); } catch { }
+                string product = null, shown = "", productShown = "";
+                try { product = EntityBalancingStore.ProductEntityId(row.entityId); shown = Loca.BlueprintName(row.entityId); if (product != null) productShown = Loca.BlueprintName(product); } catch { }
+                sb.AppendLine($"copy {row.entityId} \"{shown}\" donor={donor ?? "-"} product={product ?? "-"} \"{productShown}\"");
+            }
+            sb.Insert(0, $"{hosts.Count} mixed hosts, {factoriesOk} factory names follow their unit, {stale} stale factory names, {refs} other references to review\n");
+            File.WriteAllText(path, sb.ToString());
         }
 
         // What a mixed card SAYS against what its weapon now DOES: the host's description (written for

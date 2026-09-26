@@ -76,7 +76,7 @@ namespace RCM_Randomizer
             try
             {
                 if (Loca.BlueprintDescriptionDictionary.Count < 1) Loca.Init();
-                string hostKey = host.Trim().ToLowerInvariant(), donorKey = donor.Trim().ToLowerInvariant();
+                string hostKey = host.Trim().ToLowerInvariant();
                 foreach (var language in Loca.BlueprintDescriptionDictionary)
                 {
                     var dict = language.Value;
@@ -84,8 +84,9 @@ namespace RCM_Randomizer
                     // only rewrite a description that actually claims melee; the markup form is
                     // "*Melee:Melee*", which is why the bare word is not enough to look for
                     if (current.IndexOf("Melee", StringComparison.OrdinalIgnoreCase) < 0) continue;
-                    string donorName = donor;
-                    if (Loca.BlueprintNameDictionary.TryGetValue(language.Key, out var names2) && names2.TryGetValue(donorKey, out string n)) donorName = n;
+                    // the donor's VANILLA name: the weapon comes off its prefab, and a donor that is itself
+                    // a mixed host carries another gun under its current name
+                    string donorName = MixedUnitPresentation.VanillaName(language.Key, donor) ?? donor;
                     if (!SavedDescriptions.TryGetValue(language.Key, out var saved)) SavedDescriptions[language.Key] = saved = new Dictionary<string, string>();
                     saved[hostKey] = current;
                     dict[hostKey] = "Rearmed: fires the " + donorName + "'s weapon and no longer strikes in melee.";
@@ -146,7 +147,7 @@ namespace RCM_Randomizer
                     if (!SavedNames.TryGetValue(language.Key, out var saved)) SavedNames[language.Key] = saved = new Dictionary<string, string>();
                     saved[hostKey] = current;
                     dict[hostKey] = "Armed " + current;
-                    if (language.Key == "en" || shown == host) shown = dict[hostKey];
+                    if (language.Key == Loca.DefaultLanguage || shown == host) shown = dict[hostKey];
                 }
             }
             catch { }
