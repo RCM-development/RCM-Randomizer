@@ -66,7 +66,7 @@ namespace RCM_Randomizer
                     string baseKey = LocaKey(pair.Key);
                     if (!originals.TryGetValue(baseKey, out string baseName)) continue;
                     if (!originals.TryGetValue(LocaKey(pair.Value), out string donorName)) continue;
-                    string mixed = MixName(baseName, donorName, vanilla, taken);
+                    string mixed = MixName(baseName, donorName, vanilla, taken, MixedDescriptions.WeaponHint(pair.Value));
                     if (mixed == null) continue;
                     taken.Add(mixed);
                     saved[baseKey] = baseName;
@@ -96,9 +96,11 @@ namespace RCM_Randomizer
         static readonly HashSet<string> WeaponWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "Homing", "Missile", "Missiles", "Rocket", "Rockets", "Laser", "Beam", "Flame", "Cannon", "Double", "Gatling",
               "Machine", "Gun", "MG", "Railgun", "Rail", "Lightning", "Tesla", "Chain", "Grenade", "Grenadier", "Artillery", "Mortar",
-              "Sniper", "Shotgun", "Claw", "Blade", "Poker", "Spear", "Plasma", "Stun", "Boulder", "Swarm", "Launcher", "With" };
+              "Shotgun", "Claw", "Blade", "Poker", "Spear", "Plasma", "Stun", "Boulder", "Swarm", "Launcher", "With" };
+        // "Sniper" is a ROLE the host keeps, not its weapon: "Hover Sniper" with a cannon is a
+        // "Cannon Hover Sniper", not a "Cannon Hover"
 
-        public static string MixName(string host, string donor, HashSet<string> vanilla, HashSet<string> taken)
+        public static string MixName(string host, string donor, HashSet<string> vanilla, HashSet<string> taken, string weaponHint = null)
         {
             if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(donor)) return null;
             // the same unit under two ids: there is nothing to name, and the picker refuses the pair
@@ -106,12 +108,15 @@ namespace RCM_Randomizer
 
             // the donor's weapon: its name without brand and body. What is left must be a real word -
             // "PCX A Tank" leaves "A" and "PCX CF Tank" leaves "CF", which name nothing, and
-            // "Ancient Turret" leaves no weapon at all. Those are named in brackets instead, where
-            // the donor's own name (brand kept) says exactly what was fitted.
+            // "Ancient Turret" leaves no weapon at all. For those, what the donor FIRES can name the
+            // weapon (the A Tank's shells are CannonShotMiss: "Cannon 4x4", not "Grenadier 4x4 (A Tank)"
+            // on a jeep whose grenade launcher is gone); with no hint either, brackets, where the donor's
+            // own name (brand kept) says exactly what was fitted.
             var donorWords = Words(donor);
             var weapon = donorWords.Where(w => !Brands.Contains(w) && !Bodies.Contains(w) && w != "With").ToList();
             string weaponText = string.Join(" ", weapon);
             bool weaponIsAName = weapon.Count > 0 && (weaponText.Length > 2 || weaponText == "MG");
+            if (!weaponIsAName && !string.IsNullOrEmpty(weaponHint)) { weaponText = weaponHint; weaponIsAName = true; }
             string bracket = host + " (" + (weaponIsAName ? weaponText : string.Join(" ", donorWords.Where(w => !Brands.Contains(w) || donorWords.Count(x => !Brands.Contains(x)) <= 1))) + ")";
             if (!weaponIsAName) return Claim(bracket, host, donor, taken);
 
@@ -130,7 +135,12 @@ namespace RCM_Randomizer
             var rest = brand != null ? hostWords.Skip(1).ToList() : hostWords;
             var chassis = rest.Where(w => !WeaponWords.Contains(w)).ToList();
             bool hostArmed = chassis.Count < rest.Count;
-            if (hostArmed && chassis.Count < 2) return Claim(bracket, host, donor, taken);
+            // A host that is nothing but weapon words ("Railgun") has no chassis to name: brackets. A
+            // single chassis word is swapped like any other ("Grenadier 4x4" + cannon = "Cannon 4x4"): the
+            // old weapon word stays a lie wherever it stands, and where the swap would produce a real
+            // unit's name ("Lightning Turret" from "Homing Missile Turret") the collision check below
+            // falls back to brackets on its own.
+            if (hostArmed && chassis.Count < 1) return Claim(bracket, host, donor, taken);
             var body = hostArmed ? chassis : rest;
             string candidate = (brand != null ? brand + " " : "") + weaponText + " " + string.Join(" ", body);
 

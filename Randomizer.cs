@@ -353,8 +353,11 @@ namespace RCM_Randomizer
                     SalvagedTech.ReapplyLoca();
                     PlayerCopies.ReapplyLoca();
                     EconomyBuildings.ReapplyLoca();
+                    // the same order as the first apply: names and descriptions, the brawler layer on top, then
+                    // the roll labels appended - a label ("Roof gun: ... fires on its own") appended first would
+                    // read as a weapon sentence to the description rewrite
+                    if (_donorMap != null) { ArmedBrawlers.Restore(); MixedUnitPresentation.ApplyMixedNames(_donorMap); MixedDescriptions.Apply(_donorMap); ArmedBrawlers.Apply(_donorMap); }
                     ApplyDropDescSuffixes();
-                    if (_donorMap != null) { ArmedBrawlers.Restore(); MixedUnitPresentation.ApplyMixedNames(_donorMap); ArmedBrawlers.Apply(_donorMap); }
                     return;
                 }
 
@@ -631,6 +634,7 @@ namespace RCM_Randomizer
             RestoreCapturedTech();
             UpgradeRolls.Restore();
             ArmedBrawlers.Restore();
+            MixedDescriptions.Restore();
             SpecialistHacks.Restore(); // puts the stock cardChanges lists back; RelicRolls restores values per asset through the ledger
             RelicRolls.Restore();
             GeneratedUpgrades.Deactivate(); // after UpgradeRolls.Restore, and never removed (owned ids must stay resolvable)
@@ -981,6 +985,7 @@ namespace RCM_Randomizer
                 // name, so it is undone FIRST - the other way round wrote the mixed names back over
                 // the originals, and a unit kept its mixed name with the shuffle switched off
                 ArmedBrawlers.Restore();
+                MixedDescriptions.Restore();
                 MixedUnitPresentation.RestoreNames();
                 MixedUnitPresentation.ResetPortraits();
                 _donorMap = null;
@@ -1020,6 +1025,7 @@ namespace RCM_Randomizer
             }));
             ArmedBrawlers.Restore();       // the layer on top comes off first, or its stale names are written back
             MixedUnitPresentation.ApplyMixedNames(_donorMap);
+            MixedDescriptions.Apply(_donorMap); // the card text follows the weapon, like the name
             ArmedBrawlers.Apply(_donorMap);
             MixedUnitPresentation.ResetPortraits(); // re-captured lazily as each mixed type first spawns
             _turretStatus = $"{_donorMap.Count}/{supported.Count} pairs";

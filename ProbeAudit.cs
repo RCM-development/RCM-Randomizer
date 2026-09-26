@@ -79,6 +79,103 @@ namespace RCM_Randomizer
             WriteMuzzles(Path.ChangeExtension(path, null) + "Muzzles.txt", donorOf);
             WriteAimTest(Path.ChangeExtension(path, null) + "Aim.txt", donorOf);
             WriteAnimations(Path.ChangeExtension(path, null) + "Anim.txt", donorOf);
+            WriteMixedTexts(Path.ChangeExtension(path, null) + "MixedTexts.txt", donorOf);
+        }
+
+        // What a mixed card SAYS against what its weapon now DOES: the host's description (written for
+        // the weapon it no longer has), the donor's, and the procs in each one's firing events - status
+        // effects, entity mods, spawned objects on hit - so a text that promises "20 percent chance to
+        // slow" from a weapon that is gone can be found rather than reported.
+        static void WriteMixedTexts(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string donor = null;
+                try { donor = donorOf?.Invoke(row.entityId); } catch { }
+                if (string.IsNullOrEmpty(donor)) continue;
+                try
+                {
+                    string hostName = "", hostText = "", donorText = "", shown = "";
+                    try { hostName = MixedUnitPresentation.BaseName(row.entityId) ?? row.entityId; shown = Loca.BlueprintName(row.entityId); hostText = Loca.BlueprintDescription(row.entityId); donorText = Loca.BlueprintDescription(donor); } catch { }
+                    // stale: the host's old weapon carried a gameplay effect, and a sentence about it is still shown
+                    bool hostHadProc = MixedDescriptions.HasGameplayProc(row.entityId);
+                    string original = MixedDescriptions.OriginalText(row.entityId) ?? hostText ?? "";
+                    // a rearmed brawler's text is written by the mod (ArmedBrawlers) and describes the new weapon
+                    bool stale = !(hostText ?? "").StartsWith("Rearmed:", StringComparison.Ordinal)
+                              && MixedDescriptions.DroppedSentences(original, hostHadProc).Any(s => (hostText ?? "").Contains(s));
+                    sb.AppendLine($"{row.entityId} <- {donor} | shown \"{shown}\" | base \"{hostName}\" | hostHadProc={hostHadProc} donorHasProc={MixedDescriptions.HasGameplayProc(donor)} stale={stale} hint={MixedDescriptions.WeaponHint(donor) ?? "-"}");
+                    sb.AppendLine("  host text : " + (hostText ?? "").Replace("\n", " / "));
+                    if (original != (hostText ?? "")) sb.AppendLine("  was       : " + original.Replace("\n", " / "));
+                    sb.AppendLine("  donor text: " + (donorText ?? "").Replace("\n", " / "));
+                    sb.AppendLine("  host procs : " + FiringProcs(row.entityId));
+                    sb.AppendLine("  donor procs: " + FiringProcs(donor));
+                    sb.AppendLine("  donor fires: " + WeaponPrefabs(donor));
+                }
+                catch (Exception e) { sb.AppendLine(row.entityId + " FAILED " + e.Message); }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // the prefabs a weapon fires and leaves behind - projectile, impact, miss - by name, for a weapon
+        // word where the donor's own name has none ("PCX A Tank")
+        public static string WeaponPrefabs(string entityId)
+        {
+            try
+            {
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) as UnityEngine.GameObject;
+                var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                if (c?.events == null) return "";
+                var names = new System.Collections.Generic.SortedSet<string>(StringComparer.Ordinal);
+                foreach (var ev in c.events)
+                {
+                    if (ev == null || Array.IndexOf(Copied, ev.@event) < 0) continue;
+                    var all = new System.Collections.Generic.List<IEntityAction>(ev.actions ?? new System.Collections.Generic.List<IEntityAction>());
+                    if (ev.conditionalActions != null) foreach (var ca in ev.conditionalActions) if (ca?.actions != null) all.AddRange(ca.actions);
+                    foreach (var a in all)
+                    {
+                        if (!(a is ShootProjectile) && !(a is SpawnObject)) continue;
+                        foreach (var f in a.GetType().GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+                        {
+                            if (f.FieldType != typeof(UnityEngine.GameObject)) continue;
+                            var go = f.GetValue(a) as UnityEngine.GameObject;
+                            if (go != null) names.Add(go.name);
+                        }
+                    }
+                }
+                return string.Join(",", names);
+            }
+            catch { return ""; }
+        }
+
+        // every action in the five copied firing events that is not the shot or the damage itself
+        static string FiringProcs(string entityId)
+        {
+            try
+            {
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) as UnityEngine.GameObject;
+                var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                if (c?.events == null) return "(no prefab)";
+                var parts = new System.Collections.Generic.List<string>();
+                foreach (var ev in c.events)
+                {
+                    if (ev == null || Array.IndexOf(Copied, ev.@event) < 0) continue;
+                    var all = new System.Collections.Generic.List<(IEntityAction a, bool cond)>();
+                    if (ev.actions != null) foreach (var a in ev.actions) all.Add((a, false));
+                    if (ev.conditionalActions != null) foreach (var ca in ev.conditionalActions) if (ca?.actions != null) foreach (var a in ca.actions) all.Add((a, true));
+                    foreach (var (a, cond) in all)
+                    {
+                        if (a == null || a is ShootProjectile || a is DealDamage || a is Animate || a is PlaySound || a is PlayParticleSystem || a is PlayVisualEffect) continue;
+                        string what = a.GetType().Name;
+                        if (a is SetStatusEffect se) what += "(" + se.statusEffect + ")";
+                        else if (a is AddEntityMod m) what += "(" + (m.entityMod != null ? m.entityMod.name : "null") + ")";
+                        else if (a is SpawnObject so) what += "(" + (so.spawn == SpawnObject.Spawn.EntityId ? so.entityId : so.prefab != null ? so.prefab.name : so.spawn.ToString()) + ")";
+                        parts.Add(ev.@event + ":" + (cond ? "?" : "") + what);
+                    }
+                }
+                return parts.Count == 0 ? "none" : string.Join(", ", parts);
+            }
+            catch (Exception e) { return "FAILED " + e.Message; }
         }
 
         // After the real swap: every Animate on the host that writes a transform the aiming turns, and
