@@ -78,6 +78,87 @@ namespace RCM_Randomizer
             WriteSideFixTest(Path.ChangeExtension(path, null) + "SideFix.txt", donorOf);
             WriteMuzzles(Path.ChangeExtension(path, null) + "Muzzles.txt", donorOf);
             WriteAimTest(Path.ChangeExtension(path, null) + "Aim.txt", donorOf);
+            WriteAnimations(Path.ChangeExtension(path, null) + "Anim.txt", donorOf);
+        }
+
+        // After the real swap: every Animate on the host that writes a transform the aiming turns, and
+        // whether a Stop with its id exists on the host. An animation the aiming fights with no Stop is a
+        // gun that never reports ready (Animate.Update writes localRotation every frame it runs).
+        static void WriteAnimations(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder("host <- donor | event | animate id loop transforms | touchesAiming | stop\n");
+            var mixer = HarmonyLib.AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
+            var initType = mixer != null ? HarmonyLib.AccessTools.Inner(mixer, "Patch_EntityController_Init") : null;
+            var prefix = initType != null ? HarmonyLib.AccessTools.Method(initType, "Prefix") : null;
+            if (prefix == null) { File.WriteAllText(path, "swap entry not found\n"); return; }
+            var hosts = new System.Collections.Generic.List<(string host, string donor)>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string d = null;
+                try { d = donorOf?.Invoke(row.entityId); } catch { }
+                if (!string.IsNullOrEmpty(d) && !hosts.Exists(h => h.host == row.entityId)) hosts.Add((row.entityId, d));
+            }
+            foreach (var (host, donor) in hosts)
+            {
+                UnityEngine.GameObject prefab = null, dormant = null;
+                bool was = true;
+                try
+                {
+                    prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(host)) as UnityEngine.GameObject;
+                    if (prefab == null) continue;
+                    was = prefab.activeSelf;
+                    prefab.SetActive(false);
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    prefab.SetActive(was);
+                    var c = dormant.GetComponent<EntityController>();
+                    c.entityId = host;
+                    prefix.Invoke(null, new object[] { c, null });
+                    var turned = new System.Collections.Generic.HashSet<UnityEngine.Transform>();
+                    void Flatten(SingleTargetAction a)
+                    {
+                        if (a is SerialSingleTargetAction s) { foreach (var x in s.actions) Flatten(x); }
+                        else if (a is RotateInSingleTargetDirectionAroundAxisAction ax && ax.transformToRotate != null) turned.Add(ax.transformToRotate);
+                        else if (a is RotateInSingleTargetDirectionAction d && d.transformToRotate != null) turned.Add(d.transformToRotate);
+                        else if (a is RotateToBallisticAngleSingleTargetAction b && b.transformToRotate != null) turned.Add(b.transformToRotate);
+                    }
+                    Flatten(c.aiming);
+                    var stops = new System.Collections.Generic.Dictionary<string, string>();
+                    var animates = new System.Collections.Generic.List<(string ev, Animate a)>();
+                    if (c.events != null)
+                        foreach (var ev in c.events)
+                        {
+                            if (ev == null) continue;
+                            var all = new System.Collections.Generic.List<IEntityAction>(ev.actions ?? new System.Collections.Generic.List<IEntityAction>());
+                            if (ev.conditionalActions != null) foreach (var ca in ev.conditionalActions) if (ca?.actions != null) all.AddRange(ca.actions);
+                            foreach (var a in all)
+                            {
+                                if (a is Stop st && !string.IsNullOrEmpty(st.idToStop)) stops[st.idToStop] = ev.@event.ToString();
+                                else if (a is Animate an) animates.Add((ev.@event.ToString(), an));
+                            }
+                        }
+                    foreach (var (ev, an) in animates)
+                    {
+                        bool touches = false;
+                        var names = new System.Collections.Generic.List<string>();
+                        if (an.transforms != null)
+                            foreach (var t in an.transforms)
+                            {
+                                if (t == null) { names.Add("null"); continue; }
+                                names.Add(t.name);
+                                if (turned.Contains(t)) touches = true;
+                            }
+                        string stop = !string.IsNullOrEmpty(an.id) && stops.TryGetValue(an.id, out string on) ? on + ":Stop" : "none";
+                        sb.AppendLine($"{host} <- {donor} | {ev} | Animate id={an.id} loop={an.loop} [{string.Join(",", names)}] | {touches} | {stop}");
+                    }
+                }
+                catch (Exception e) { sb.AppendLine($"{host} <- {donor} FAILED {(e.InnerException ?? e).Message}"); }
+                finally
+                {
+                    if (prefab != null) prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            File.WriteAllText(path, sb.ToString());
         }
 
         // The real swap, run at the menu: the mixer's Init prefix on a dormant host, then the transplanted
