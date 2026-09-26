@@ -1,7 +1,19 @@
 # Changelog
 
 
-## Unreleased
+## 0.9.5 — 2026-09-26
+
+### In short
+
+- **Mixed units fire again.** 17 mixed units, the Grenadier 4x4 among them, could never aim: a borrowed idle animation kept pulling the gun back. Fixed for all of them.
+- **Mixed turrets turn all the way round.** Some borrowed turrets could only shoot into a 90° cone in front of them.
+- **Names and texts match the weapon.** A card no longer promises a slow or burn from a weapon that's gone. Names come from what the gun actually fires ("Cannon 4x4"). Factories, specialists and hack texts use the new names too.
+- **Enemy weapons work for you.** Flame weapons taken from the enemy used to burn your own units; now they burn the enemy.
+- **Salvage works properly.** Salvage foundries build the right unit and are priced on what it costs to field them. Salvaged units and roof guns take your hacks and count for role cards.
+- **Unlocks are spread out.** Engineers, specialists and economies now unlock all the way up to level 45 instead of nearly all before level 10.
+- **Better bug reports.** The log now says when a mixed unit is in a fight and never fires.
+
+The detailed notes follow.
 
 - **A mixed card no longer describes the weapon it lost** (reported: "the 20% chance to slow does not seem to work" on the Grenadier Jeep firing the PCX A Tank's cannon). The swap replaces the host's firing events, projectile and damage action with the donor's - everything a weapon effect can live in - but the card kept the host's text. Read off the prefabs and the texts: a sentence naming an effect and a weapon trigger ("Attack: 20% chance to Slow", "25% crit against buildings", "Shoots capsules that spawn a Nano Hunter") is dropped from every mixed host; one that only mentions attacking ("reduces attack cooldown by 1% per hit") is dropped where the host's own firing events carried a gameplay effect; chassis traits ("+3 Armor while Fortified", "Immune against Burning", "Burning: Rage") and role markers stay. The donor's effect sentences come along only when the donor's firing events carry that effect (the Rocket Truck's slow, the Incinerator's burn), and a spawn named by its AI-side id is named by the player version the turret now spawns. On the test seed 27 of 94 mixed cards promised effects of a weapon they no longer had; now 0, with texts the game wrote left byte for byte where nothing changes. New audit check.
 - **Mixed names say the weapon that is there.** A donor whose name has no weapon word ("PCX A Tank") is named by what it fires (its shells are CannonShotMiss): "Cannon 4x4", not "Grenadier 4x4 (A Tank)" on a jeep with no grenades - the shot's own prefab first, then unconditional impacts, never a conditional proc (the Robo Marine's occasional mark grenade would have named its machine gun "Grenade"). A host's single remaining chassis word is swapped like any other ("Railgun Mech", "Cannon Walker"), with the collision check still falling back to brackets where the swap would produce a real unit's name ("Lightning Turret (Flame)"). "Sniper" is a role the host keeps: "Cannon Hover Sniper".

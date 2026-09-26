@@ -29,7 +29,7 @@ namespace RCM_Randomizer
         const string IDENTIFIER = "RCM.plugins.randomizer";
         const string SeedFileName = "randomizerSeed.txt";
         // keep in step with <Version> in RCM_Randomizer.csproj (BepInPlugin needs a constant)
-        public const string Version = "0.9.4";
+        public const string Version = "0.9.5";
 
         public enum Mode { Off, PerSave, PerRun }
 

@@ -46,7 +46,7 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 
 ## Status
 
-Version 0.9.4 (0.9.0 was the first release); see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills, the setup-screen/run consistency and the economy buildings. The 0.9.4 audit fixes - salvaged units on their own ids, the shared-card ledger, the rolled texts - are verified at the menu and in the data, not yet through a full battle. Analysis and roadmap: `docs/balance-analysis.md`.
+Version 0.9.5 (0.9.0 was the first release); see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills, the setup-screen/run consistency, the economy buildings, and mixed units aiming and firing (0.9.5). The 0.9.5 name and text fixes are verified in play for unit and factory names; relic, hack and message texts are verified at the menu and in the data. Analysis and roadmap: `docs/balance-analysis.md`.
 
 ## Install
 
