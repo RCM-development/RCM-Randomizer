@@ -139,10 +139,44 @@ namespace RCM_Randomizer
                 if (!Enabled || __instance == null) return;
                 if ((Time.frameCount + __instance.GetInstanceID()) % 15 != 0) return;
                 long t = ModCost.Start();
-                try { Check(__instance); }
-                catch { }
+                try { Trace(__instance); Check(__instance); }
+                catch (Exception e)
+                {
+                    // never silently: a watchdog that throws for one unit type is a blind spot for exactly it
+                    if (__instance != null && FailedOnce.Add(__instance.entityId))
+                        TestMod.RCMManager.Log("Randomizer: weapon watchdog failed on " + __instance.entityId + ": " + e.GetType().Name + " " + e.Message);
+                }
                 ModCost.Stop(ModCost.Slot.Watchdog, t);
             }
+        }
+
+        static readonly HashSet<string> FailedOnce = new HashSet<string>();
+
+        // Diagnostics.TraceUnits: entity ids whose full attack state is logged every five seconds whatever it
+        // is - for a unit that misbehaves in a way no verdict above is shaped for.
+        public static readonly HashSet<string> TraceIds = new HashSet<string>(StringComparer.Ordinal);
+        static readonly Dictionary<int, float> LastTrace = new Dictionary<int, float>();
+
+        static void Trace(EntityController entity)
+        {
+            if (TraceIds.Count == 0 || !TraceIds.Contains(entity.entityId) || !entity.IsControlledByPlayer) return;
+            int key = entity.GetInstanceID();
+            if (LastTrace.TryGetValue(key, out float last) && Time.time - last < 5f) return;
+            LastTrace[key] = Time.time;
+            var attack = entity.GetAttackForDebugging();
+            var target = attack != null ? attack.CurrentTarget : null;
+            var state = StateOf(entity);
+            string near = "-";
+            try { var n = NearestEnemy(entity, out float cells); if (n != null) near = n.entityId + " at " + cells.ToString("0.#"); }
+            catch (Exception e) { near = "lookup failed: " + e.Message; }
+            string donor = DonorOf != null ? DonorOf(entity.entityId) : null;
+            TestMod.RCMManager.Log($"Randomizer: TRACE {entity.entityId}#{key} <- {donor ?? "-"}: canAttack={entity.CanAttack} range={entity.WeaponRange:0.##} melee={entity.melee}"
+                + $" target={(target == null ? "none" : target.entityId + " at " + (Vector2.Distance(entity.Position2d, target.Position2d) * 0.1f).ToString("0.#") + (attack.IsCurrentTargetInRange ? " IN range" : " out of range"))}"
+                + $" order={(attack?._attackTarget == null ? "none" : attack._attackTarget.entityId)} nearestEnemy={near}"
+                + $" mode={(attack == null ? "no attack" : attack.CurrentAttackMode.ToString() + (attack.IsDisabled ? " DISABLED" : ""))}"
+                + $" moving={entity.IsMoving} armed={(state.EverArmed ? (Time.time - state.LastArmed).ToString("0") + "s ago" : "never")}"
+                + $" shot={(state.EverShot ? (Time.time - state.LastShot).ToString("0") + "s ago" : "never")}"
+                + AimingInternals(entity, attack, target));
         }
 
         static void Check(EntityController entity)

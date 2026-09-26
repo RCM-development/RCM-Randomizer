@@ -57,6 +57,7 @@ namespace RCM_Randomizer
         ConfigEntry<float> _level0Share;
         ConfigEntry<bool> _spreadSetupUnlocks;
         ConfigEntry<int> _setupUnlockTop;
+        ConfigEntry<string> _traceUnits;
         ConfigEntry<int> _salvageCount;
         ConfigEntry<int> _salvageFirstLevel;
         ConfigEntry<bool> _vault;
@@ -159,6 +160,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Seed-generated drops (existing drop behaviours with their own rolled numbers, filling the Rare shop slots).", new AcceptableValueRange<int>(0, 3)));
             _watchWeapons = Config.Bind("Diagnostics", "WatchWeapons", true,
                 "Log one line per unit type that holds a target in range without firing, naming which step of the shot chain stopped: aiming, the shot itself, or the hit. For chasing down units that idle in battle.");
+            _traceUnits = Config.Bind("Diagnostics", "TraceUnits", "",
+                "Entity ids (comma separated) whose full attack state the weapon watchdog logs every five seconds in battle: target and range, attack order, nearest enemy, mode, when it last armed and shot, and the aiming's live internals.");
             _dumpPrefabFacts = Config.Bind("Diagnostics", "DumpPrefabFacts", false,
                 "Write BepInEx/RandomizerProbe.txt once per session: for every rolled unit the range its selection circle draws, its target identifiers and events, plus specialist hacks and the health bar layout. Read straight off the prefabs; for bug reports and development.");
             _roofTurrets = Config.Bind("TurretShuffle", "RoofTurrets", true,
@@ -396,6 +399,8 @@ namespace RCM_Randomizer
                 GeneratedHacks.AdvancedCount = _advancedHackCount.Value;
                 if (_generatedDropCount.Value > 0) GeneratedDrops.Apply(seed, luck, _generatedDropCount.Value); // before ApplyRolls so they join the roll universe
                 WeaponWatchdog.Enabled = _watchWeapons.Value;
+                WeaponWatchdog.TraceIds.Clear();
+                foreach (string traced in (_traceUnits.Value ?? "").Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)) WeaponWatchdog.TraceIds.Add(traced.Trim());
                 WeaponWatchdog.DonorOf = id => _donorMap != null && _donorMap.TryGetValue(id, out string d) ? d : null;
                 GrenadeScatter.Configure(_scatterWeapons.Value, _scatterRadius.Value);
                 Titans.Enabled = _titans.Value; Titans.UnlockTier = _titanUnlockTier.Value; Titans.EnemyTitans = _enemyTitans.Value; Titans.EarliestRunProgress = _titanEarliest.Value;
