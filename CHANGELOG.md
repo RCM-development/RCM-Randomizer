@@ -1,6 +1,15 @@
 # Changelog
 
 
+## Unreleased
+
+- **Strong weapon swaps come later and cost more** (reported: the Lava Dweller Turret, a Cannon Turret firing the Lava Dweller's burning shells, is "very powerful, should come later and be a bit more expensive"). The unlock track was built from the cards as the game ships them, before any swap, so a mixed card kept its host's level whatever its new gun did. Once the swaps are baked, every mixed card is ranked again by what it now fields (damage, splash, reach and on-hit effects) and moves later if that says so, never earlier: the Lava Dweller Turret goes from level 3 to 19, and 16 other mixed cards move on the test seed. On-hit effects are now priced into the swap as well: a burning patch or a creature left behind, a stun, a slow, panic or crits count as extra damage, and effects the host's own gun had come off its price. The Lava Dweller Turret costs 400 instead of 349.
+- **The Energy Transfer Turret slows for 4 seconds instead of 2.** Checked on the prefab: the slow's length is the turret's own Duration1, so the card shows the new value too. Setting: `Balance.EnergyTransferSlowSeconds`.
+- **Skill damage grows with veterancy.** The rank bonus raised the unit's own damage, and half of the game's skills (34 of 68, counted off the prefabs) hit through something they spawn: mines, the Firebrand's thump, the Juggernaut's launch, Deploy Turret, Orbital Strike, creepers. Those dealt their own damage, which no rank reached. Anything a ranked unit spawns now fights at its tier (the same +15 % damage and health per tier), and so does a roof gun. The probe lists every skill and where its damage comes from.
+- **Roof guns are earned at gold rank.** A unit that rolled a roof gun gets it when it reaches gold, instead of being built with it. The card says so, the card model no longer shows it, and it costs much less, since few units ever reach gold (power 0.34 down to 0.08). With veterancy switched off it comes with the unit as before.
+- **Portraits no longer show an olive square.** The portrait booth copied the unit's helper meshes too. The Support Tank's minimap shape, an opaque player-coloured polygon, filled the frame behind a tiny model. Helper geometry (minimap shape, fog-of-war, selection circles, range and shield spheres) is left out, and anything too big to frame on is not drawn.
+- **The melee blueprint reward offers melee units.** The game's melee pool also takes spawners of melee creatures (Spider Spawner, Tick Walker, Robo Zombo Beacon), so on the test seed the "melee" choice was one Robo Poker and three units that never fight in contact. It now holds units whose own prefab fights in contact: the melee bots, and the bombs that ram their target. Bots this seed armed with guns stay out. New audit check.
+
 ## 0.9.5 — 2026-09-26
 
 ### In short

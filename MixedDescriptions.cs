@@ -158,6 +158,23 @@ namespace RCM_Randomizer
         static readonly Dictionary<string, HashSet<string>> EffectCache = new Dictionary<string, HashSet<string>>();
 
         // the effects a unit's firing events carry, by the same keys the text is matched with
+        // What a weapon's on-hit effects are worth, as a share of its damage, for pricing and the
+        // unlock track: a hit that leaves a burning patch or a creature behind (the Lava Dweller's
+        // fire on a Cannon Turret, reported as "very powerful") deals damage the damage number never
+        // shows. Rough by design - the effects' own numbers sit in other entities.
+        static readonly Dictionary<string, float> ProcWeight = new Dictionary<string, float>
+            { { "spawn", 0.30f }, { "burn", 0.20f }, { "stun", 0.20f }, { "slow", 0.12f }, { "panic", 0.12f }, { "crit", 0.10f } };
+
+        // what the donor's weapon brings minus what the host's own weapon had
+        public static float ProcValueGained(string hostId, string donorId)
+        {
+            var host = ProcEffects(hostId);
+            var donor = ProcEffects(donorId);
+            float gained = donor.Where(k => !host.Contains(k)).Sum(k => ProcWeight.TryGetValue(k, out float w) ? w : 0f);
+            float lost = host.Where(k => !donor.Contains(k)).Sum(k => ProcWeight.TryGetValue(k, out float w) ? w : 0f);
+            return gained - lost;
+        }
+
         public static HashSet<string> ProcEffects(string entityId)
         {
             if (string.IsNullOrEmpty(entityId)) return new HashSet<string>();

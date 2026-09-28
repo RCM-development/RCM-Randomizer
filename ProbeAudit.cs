@@ -81,6 +81,234 @@ namespace RCM_Randomizer
             WriteAnimations(Path.ChangeExtension(path, null) + "Anim.txt", donorOf);
             WriteMixedTexts(Path.ChangeExtension(path, null) + "MixedTexts.txt", donorOf);
             WriteNameRefs(Path.ChangeExtension(path, null) + "Names.txt", donorOf);
+            WritePools(Path.ChangeExtension(path, null) + "Pools.txt", donorOf);
+            WriteSkillDamage(Path.ChangeExtension(path, null) + "SkillDamage.txt");
+            WritePortraitParts(Path.ChangeExtension(path, null) + "PortraitParts.txt", donorOf);
+            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret" });
+        }
+
+        // An entity's events and actions with their serialized fields, following entity mods one
+        // level down: what a card's number actually feeds.
+        static void WriteEntityDump(string path, string[] ids)
+        {
+            var sb = new StringBuilder();
+            var seen = new System.Collections.Generic.HashSet<object>();
+            void DumpObject(object o, string indent, int depth)
+            {
+                if (o == null || depth > 4 || !seen.Add(o)) return;
+                foreach (var f in o.GetType().GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+                {
+                    if (f.Name.StartsWith("_") || f.Name.Contains("<")) continue;
+                    object v; try { v = f.GetValue(o); } catch { continue; }
+                    if (v == null) continue;
+                    if (v is UnityEngine.Object uo && !(v is EntityModScriptableObject)) { sb.AppendLine($"{indent}{f.Name} = [{uo.GetType().Name}] {uo.name}"); continue; }
+                    if (v is string || v.GetType().IsPrimitive || v is Enum) { sb.AppendLine($"{indent}{f.Name} = {v}"); continue; }
+                    if (v is EntityModScriptableObject mod)
+                    {
+                        sb.AppendLine($"{indent}{f.Name} = mod {mod.name}");
+                        if (mod.events != null) foreach (var ev in mod.events) DumpEvent(ev, indent + "    ", depth + 1);
+                        continue;
+                    }
+                    if (v is System.Collections.IEnumerable list)
+                    {
+                        int n = 0;
+                        foreach (object item in list)
+                        {
+                            if (item == null) continue;
+                            if (item is IEntityAction) { sb.AppendLine($"{indent}{f.Name}[{n}] {item.GetType().Name}"); DumpObject(item, indent + "  ", depth + 1); }
+                            else if (item is string || item.GetType().IsPrimitive || item is Enum) sb.AppendLine($"{indent}{f.Name}[{n}] = {item}");
+                            else if (item is UnityEngine.Object u2) sb.AppendLine($"{indent}{f.Name}[{n}] = {u2.name}");
+                            else { sb.AppendLine($"{indent}{f.Name}[{n}] {item.GetType().Name}"); DumpObject(item, indent + "  ", depth + 1); }
+                            n++;
+                        }
+                        continue;
+                    }
+                    if (v.GetType().IsValueType) { sb.AppendLine($"{indent}{f.Name} = {v}"); continue; }
+                    sb.AppendLine($"{indent}{f.Name} {v.GetType().Name}");
+                    DumpObject(v, indent + "  ", depth + 1);
+                }
+            }
+            void DumpEvent(EntityEvent ev, string indent, int depth)
+            {
+                if (ev == null) return;
+                sb.AppendLine($"{indent}event {ev.@event}");
+                if (ev.actions != null) foreach (var a in ev.actions) { sb.AppendLine($"{indent}  {a?.GetType().Name}"); DumpObject(a, indent + "    ", depth); }
+                if (ev.conditionalActions != null) foreach (var ca in ev.conditionalActions) { sb.AppendLine($"{indent}  conditional"); DumpObject(ca, indent + "    ", depth); }
+            }
+            foreach (string id in ids)
+            {
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
+                    var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                    sb.AppendLine($"# {id} duration1={F(EntityBalancingStore.Duration1(id, returnOriginalValueFromBalancingFile: true))} now={F(EntityBalancingStore.Duration1(id))}");
+                    if (c?.events != null) foreach (var ev in c.events) DumpEvent(ev, "", 0);
+                }
+                catch (Exception e) { sb.AppendLine(id + " FAILED " + e.Message); }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // Every mesh a portrait would photograph on a mixed unit and on the roof guns: path, whether
+        // it is on by default, its size, and whether the booth now leaves it out (helper geometry).
+        static void WritePortraitParts(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            var ids = new System.Collections.Generic.List<string>(RoofTurrets.AvailableIds());
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string donor = null; try { donor = donorOf?.Invoke(row.entityId); } catch { }
+                if (!string.IsNullOrEmpty(donor)) { ids.Add(row.entityId); ids.Add(donor); }
+            }
+            foreach (string id in ids.Distinct())
+            {
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
+                    if (prefab == null) continue;
+                    var parts = new System.Collections.Generic.List<string>();
+                    foreach (var r in prefab.GetComponentsInChildren<UnityEngine.MeshRenderer>(true))
+                    {
+                        var filter = r.GetComponent<UnityEngine.MeshFilter>();
+                        if (filter == null || filter.sharedMesh == null) continue;
+                        var s = UnityEngine.Vector3.Scale(filter.sharedMesh.bounds.size, r.transform.lossyScale);
+                        string p = r.name; for (var t = r.transform.parent; t != null && t != prefab.transform; t = t.parent) p = t.name + "/" + p;
+                        bool helper = MixedUnitPresentation.IsHelperGeometry(r.transform, prefab.transform);
+                        bool on = r.enabled; for (var t = r.transform; t != null; t = t.parent) on &= t.gameObject.activeSelf;
+                        parts.Add($"{(helper ? "SKIP " : "")}{p} on={on} size={F(s.magnitude)} mat={(r.sharedMaterial != null ? r.sharedMaterial.name : "-")}");
+                    }
+                    sb.AppendLine($"{id}: {parts.Count} meshes");
+                    foreach (string p in parts) sb.AppendLine("  " + p);
+                }
+                catch (Exception e) { sb.AppendLine(id + " FAILED " + e.Message); }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // Where each active skill's damage comes from. Veterancy raises the unit's own Damage (both
+        // Damage1 and Damage2), so a skill whose DealDamage runs with the caster as Self scales with
+        // rank; one that spawns a mine, a creature or a turret deals THAT entity's damage, which the
+        // caster's rank never reaches. Vanilla skills off the prefabs, the mod's own off its catalog.
+        static void WriteSkillDamage(string path)
+        {
+            var sb = new StringBuilder();
+            int scales = 0, fixedDamage = 0;
+            void Walk(EntityController c, System.Collections.Generic.IEnumerable<IEntityAction> actions, string self, int depth, System.Collections.Generic.List<string> found)
+            {
+                if (actions == null || depth > 3) return;
+                foreach (var a in actions)
+                {
+                    switch (a)
+                    {
+                        case DealDamage d: found.Add($"DealDamage({d.damageChoice} of {self})"); break;
+                        case DealDamageAdvanced d: found.Add($"DealDamageAdvanced({d.damageAmount} of {d.whoseParameterValueIsUsedAsDamageAmount}, self={self})"); break;
+                        case ShootProjectile p: found.Add($"ShootProjectile({(p.projectilePrefab != null ? p.projectilePrefab.name : "?")}, hits as {self})"); break;
+                        case SpawnObject s:
+                        {
+                            string spawned = s.spawn == SpawnObject.Spawn.EntityId ? s.entityId : (s.prefab != null && s.prefab.GetComponent<EntityController>() != null ? s.prefab.name : null);
+                            if (spawned == null) break;
+                            string dmg = "";
+                            try { dmg = $" dmg {F(EntityBalancingStore.Damage1(spawned, returnOriginalValueFromBalancingFile: true))}/{F(EntityBalancingStore.Damage2(spawned, returnOriginalValueFromBalancingFile: true))}"; } catch { }
+                            found.Add($"spawns {spawned}{dmg}");
+                            break;
+                        }
+                        case RunActionsOfEvent r when c != null && c.events != null:
+                            foreach (var ev in c.events)
+                                if (ev != null && ev.@event == r.@event)
+                                {
+                                    Walk(c, ev.actions, r.payloadSelf.ToString(), depth + 1, found);
+                                    if (ev.conditionalActions != null) foreach (var ca in ev.conditionalActions) Walk(c, ca?.actions, r.payloadSelf.ToString(), depth + 1, found);
+                                }
+                            break;
+                    }
+                }
+            }
+            void Report(string owner, string skill, System.Collections.Generic.List<string> found)
+            {
+                bool spawnsOnly = found.Count > 0 && found.All(f => f.StartsWith("spawns"));
+                bool any = found.Count > 0;
+                if (any && !spawnsOnly) scales++; else if (spawnsOnly) fixedDamage++;
+                sb.AppendLine($"{(any ? (spawnsOnly ? "SPAWNED" : "caster ") : "no dmg ")} {owner} [{skill}]: {string.Join(", ", found)}");
+            }
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (row.inactive) continue;
+                try
+                {
+                    var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(row.entityId)) as UnityEngine.GameObject;
+                    var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                    if (c?.events == null || !c.hasActiveSkill) continue;
+                    var found = new System.Collections.Generic.List<string>();
+                    foreach (var ev in c.events)
+                    {
+                        if (ev == null || ev.@event != EntityController.Event.OnActivateSkill) continue;
+                        Walk(c, ev.actions, "Self", 0, found);
+                        if (ev.conditionalActions != null) foreach (var ca in ev.conditionalActions) Walk(c, ca?.actions, "Self", 0, found);
+                    }
+                    Report(row.entityId, "vanilla", found);
+                }
+                catch (Exception e) { sb.AppendLine(row.entityId + " FAILED " + e.Message); }
+            }
+            foreach (var spec in SkillInjector.Catalog)
+            {
+                try
+                {
+                    if (spec.IsAvailable != null && !spec.IsAvailable()) { sb.AppendLine($"unavail  mod [{spec.Id}]"); continue; }
+                    var found = new System.Collections.Generic.List<string>();
+                    Walk(null, spec.BuildActions?.Invoke(), "Self", 0, found);
+                    Report("mod", spec.Id, found);
+                }
+                catch (Exception e) { sb.AppendLine("mod " + spec.Id + " FAILED " + e.Message); }
+            }
+            sb.Insert(0, $"{scales} skills deal the caster's damage (scale with rank), {fixedDamage} deal only spawned entities' damage\n");
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // The game's blueprint pools (map rewards like "choose a melee blueprint"): each pool's filter
+        // as authored, and every card it offers with what the filter reads and what the unit now is.
+        static void WritePools(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                foreach (var pool in UnityEngine.Resources.LoadAll<BlueprintPool>("BlueprintPools"))
+                {
+                    sb.AppendLine($"# pool {pool.poolId} exclusive={pool.blueprintsAreExclusive} filter={DescribeFilter(pool.blueprintFilter)}");
+                    foreach (string card in pool.BlueprintsInPool(null, excludeExclusivesFromOtherPools: true))
+                    {
+                        string unit = EntityBalancingStore.ProductEntityId(card) ?? card;
+                        string donor = null; try { donor = donorOf?.Invoke(unit); } catch { }
+                        string shown = ""; try { shown = Loca.BlueprintName(unit); } catch { }
+                        var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(unit)) as UnityEngine.GameObject;
+                        var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                        sb.AppendLine($"  {card} -> {unit} \"{shown}\" L{EntityBalancingStore.NeededExperienceLevel(card)} attackType={EntityBalancingStore.AttackType(unit)}"
+                            + $" range={F(EntityBalancingStore.WeaponRange(unit, returnOriginalValueFromBalancingFile: true))}/{F(EntityBalancingStore.WeaponRange(unit))}"
+                            + $" prefabMelee={(c != null ? c.melee.ToString() : "?")} roles={EntityBalancingStore.EntityBalancingParametersList[EntityBalancingStore.ParameterListIndexOf[unit]].roles} tags={EntityBalancingStore.OfferedSystemTags(unit)} donor={donor ?? "-"}");
+                    }
+                }
+            }
+            catch (Exception e) { sb.AppendLine("FAILED " + e); }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        static string DescribeFilter(object filter)
+        {
+            if (filter == null) return "none";
+            var type = filter.GetType();
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var f in type.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                object v = f.GetValue(filter);
+                if (v is System.Collections.IEnumerable list && !(v is string))
+                {
+                    var inner = new System.Collections.Generic.List<string>();
+                    foreach (object o in list) inner.Add(DescribeFilter(o));
+                    parts.Add(f.Name + "=[" + string.Join(", ", inner) + "]");
+                }
+                else if (v != null && v.GetType().Namespace == "Entity" && !(v is Enum)) parts.Add(f.Name + "=" + DescribeFilter(v));
+                else parts.Add(f.Name + "=" + v);
+            }
+            return type.Name + "(" + string.Join(" ", parts) + ")";
         }
 
         // Every place a renamed unit is still called by its old name. A unit's name is one loca entry,

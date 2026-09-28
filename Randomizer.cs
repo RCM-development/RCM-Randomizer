@@ -43,6 +43,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _turretShuffle;
         ConfigEntry<float> _turretMaxSizeRatio;
         ConfigEntry<bool> _weaponPricing;
+        ConfigEntry<float> _slowTurretSeconds;
         ConfigEntry<float> _mixedShare;
         ConfigEntry<string> _weaponPriceOverrides;
         ConfigEntry<bool> _rollDrops;
@@ -134,6 +135,8 @@ namespace RCM_Randomizer
                 new ConfigDescription("Units only swap turrets within a size band: biggest/smallest model footprint in a band stays under this ratio, so tiny bodies never carry huge guns. Higher = wilder combinations.", new AcceptableValueRange<float>(1f, 10f)));
             _mixedShare = Config.Bind("TurretShuffle", "MixedShare", 0.8f,
                 new ConfigDescription("Share of the roster that gets another unit's turret on a given seed. The rest stays vanilla, so stock units remain playable next to the mixes; which ones changes with the seed. 1 = mix everything that can be mixed.", new AcceptableValueRange<float>(0f, 1f)));
+            _slowTurretSeconds = Config.Bind("Balance", "EnergyTransferSlowSeconds", 4f,
+                "How long the Energy Transfer Turret's slow lasts, in seconds (the game's own: 2). 0 leaves the game's value.");
             _weaponPricing = Config.Bind("TurretShuffle", "WeaponPricing", true,
                 "Receiving another unit's weapon changes the card's cost: extra barrels are priced by the budget model, and per-donor overrides cover projectile quality the data can't see.");
             _weaponPriceOverrides = Config.Bind("TurretShuffle", "WeaponPriceOverrides", "CF2=1.6",
@@ -334,7 +337,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_unlockByPower.Value}|{_level0Share.Value:F2}|{_spreadSetupUnlocks.Value}|{_setupUnlockTop.Value}|{_salvageCount.Value}|{_salvageFirstLevel.Value}|{_vault.Value}|{_vaultFirstLevel.Value}|{_advancedUpgradeCount.Value}|{_advancedHackCount.Value}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_unlockByPower.Value}|{_level0Share.Value:F2}|{_spreadSetupUnlocks.Value}|{_setupUnlockTop.Value}|{_salvageCount.Value}|{_salvageFirstLevel.Value}|{_vault.Value}|{_vaultFirstLevel.Value}|{_advancedUpgradeCount.Value}|{_advancedHackCount.Value}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}|{_slowTurretSeconds.Value:F1}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -380,6 +383,9 @@ namespace RCM_Randomizer
                 // gated one step up the ladder: not on a brand-new relaxed profile, but early
                 // enough to be met in ordinary play (captured tech, at tier 2, comes later)
                 RoofTurrets.Enabled = _roofTurrets.Value;
+                // with ranks to earn, the roof gun is earned at gold (and priced as the rare reward it is)
+                RoofTurrets.AtGoldOnly = Veterancy.Enabled && Veterancy.EarnFromKills;
+                RollEngine.RoofTurretPower = RoofTurrets.AtGoldOnly ? RollEngine.RoofTurretPowerAtGold : RollEngine.RoofTurretPowerOnSpawn;
                 if (_roofTurrets.Value) RoofTurrets.PrepareCopies(); else PlayerCopies.Deactivate(RoofTurrets.CopyPrefix);
                 RollEngine.HasSecondWeapon = PrefabHasChildTurret;
                 RollEngine.RoofTurretOptions = _roofTurrets.Value && Progression.IsUnlocked(2)
@@ -415,7 +421,9 @@ namespace RCM_Randomizer
                 SpawnSides.Reset(); // per-id verdicts depend on the donor map
                 ApplyRolls(seed, luck);
                 ApplyWeaponPricing();
+                if (_turretShuffle.Value) UnlockLevels.ApplyMixed(seed, _donorMap); // after the swaps are baked into the rows
                 ApplyEngineerCareer();
+                ApplyTuning();
                 if (_rollUpgrades.Value) UpgradeRolls.Apply(seed, _intensity.Value, luck);
                 if (_generatedUpgradeCount.Value > 0) GeneratedUpgrades.Apply(seed, luck, _generatedUpgradeCount.Value); // AFTER UpgradeRolls: authored numbers must not double-roll
                 if (_rollHacks.Value) RelicRolls.Apply(seed, _intensity.Value, luck);
@@ -605,7 +613,9 @@ namespace RCM_Randomizer
                 {
                     RoofTurrets.Assign(roll.EntityId, roll.RoofTurretId);
                     roofed.Add(roll.EntityId + "+" + roll.RoofTurretId);
-                    _dropDescSuffixes[roll.EntityId.Trim().ToLowerInvariant()] = "<i>Roof gun: a second weapon that aims and fires on its own.</i>";
+                    _dropDescSuffixes[roll.EntityId.Trim().ToLowerInvariant()] = RoofTurrets.AtGoldOnly
+                        ? "<i>Gold rank: earns a roof gun, a second weapon that aims and fires on its own.</i>"
+                        : "<i>Roof gun: a second weapon that aims and fires on its own.</i>";
                 }
             }
             ApplyDropDescSuffixes();
@@ -1077,6 +1087,32 @@ namespace RCM_Randomizer
         }
 
         const int WeaponPricingChangeId = -49_999;
+        const int TuningChangeId = -49_997;
+        const string TuningLocaKey = "rcmrandomizertuning";
+
+        // Hand-tuned values from playtests, through the card-change layer like everything else so
+        // the card shows them and switching the mod off puts the game's own back.
+        void ApplyTuning()
+        {
+            var changes = new List<CardChangeScriptableObject>();
+            // Energy Transfer Turret: its slow held for 2 s - reported as too short to matter
+            const string slowTurret = "EnergyTransferTurret";
+            try
+            {
+                if (_slowTurretSeconds.Value > 0f && EntityBalancingStore.ParameterListIndexOf.ContainsKey(slowTurret))
+                {
+                    float own = EntityBalancingStore.Duration1(slowTurret, returnOriginalValueFromBalancingFile: true);
+                    if (own > 0f && Math.Abs(_slowTurretSeconds.Value - own) > 0.01f)
+                        changes.Add(AddChange(EntityBalancingStore.ChangeableValue.Duration1, _slowTurretSeconds.Value - own, slowTurret));
+                }
+            }
+            catch (Exception e) { RCMManager.Log("Randomizer: tuning skipped (" + e.Message + ")"); }
+            if (changes.Count == 0) return;
+            SetLocaText(TuningLocaKey, "Randomizer tuning");
+            RegisterChangesQuietly(TuningChangeId, changes, new CardId(CardId.CardType.GlobalLocaId, TuningLocaKey));
+            _appliedChangeIds.Add(TuningChangeId);
+            RCMManager.Log($"Randomizer: tuning -> {slowTurret} slow {_slowTurretSeconds.Value:0.#} s");
+        }
 
         void ApplyWeaponPricing()
         {
@@ -1153,6 +1189,12 @@ namespace RCM_Randomizer
                     // shells. The donor's own price is the best proxy there is - a gun lifted off an
                     // 800-credit unit is a better gun than one off a 120-credit unit even at the host's
                     // damage numbers (Support Tank + Eradicator beam was the playtest case).
+                    // and its ON-HIT EFFECTS: burning patches, creatures, stuns and slows it leaves
+                    // behind deal what no damage number shows, and the host's own that went with its
+                    // weapon come off (MixedDescriptions.ProcValueGained)
+                    float procs = MixedDescriptions.ProcValueGained(pair.Key, pair.Value);
+                    if (Mathf.Abs(procs) > 0.001f) delta += 0.6f * Mathf.Log(1f + Mathf.Max(-0.5f, procs));
+
                     float baseCost = EntityBalancingStore.Cost(pair.Key, returnOriginalValueFromBalancingFile: true);
                     float donorCost = EntityBalancingStore.Cost(pair.Value, returnOriginalValueFromBalancingFile: true);
                     if (baseCost > 1f && donorCost > 1f)

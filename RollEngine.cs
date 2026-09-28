@@ -75,8 +75,11 @@ namespace RCM_Randomizer
         // when the feature is off or the progression ladder has not reached it yet.
         public static IReadOnlyList<string> RoofTurretOptions = new List<string>();
         // A second, independently firing gun is close to a second unit: priced above any skill, and
-        // paid for by the card's cost and build time like everything else.
-        public const float RoofTurretPower = 0.34f;
+        // paid for by the card's cost and build time like everything else. Earned at gold instead
+        // (RoofTurrets.AtGoldOnly), it is a reward few units ever reach and is priced as one.
+        public const float RoofTurretPowerOnSpawn = 0.34f;
+        public const float RoofTurretPowerAtGold = 0.08f;
+        public static float RoofTurretPower = RoofTurretPowerOnSpawn;
         // Units that already carry a second gun as an embedded child turret (supplied by the
         // plugin, which can read prefabs).
         public static Func<string, bool> HasSecondWeapon;

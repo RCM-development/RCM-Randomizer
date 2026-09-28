@@ -532,6 +532,10 @@ namespace RCM_Randomizer
                 if (renderers.Length == 0) throw new Exception("no visible renderers on the copy");
 
                 Bounds bounds = FramingBounds(renderers);
+                // what the framing leaves out is not drawn either: a mesh too big to frame on is a
+                // beam, an aura or ground geometry, and drawn it filled the frame around the unit
+                float limit = OutlierLimit(renderers);
+                foreach (var r in renderers) if (r.bounds.size.magnitude > limit) r.enabled = false;
 
                 var camObj = new GameObject("RCM_PortraitCam");
                 camObj.transform.SetParent(booth.transform);
@@ -564,10 +568,15 @@ namespace RCM_Randomizer
         // Beam and effect meshes are stretched towards their target and report enormous world
         // bounds; framing on those zooms the camera so far out that the unit is a few pixels.
         // Drop the outliers and frame on what is left.
-        static Bounds FramingBounds(Renderer[] renderers)
+        static float OutlierLimit(Renderer[] renderers)
         {
             var sizes = renderers.Select(r => r.bounds.size.magnitude).OrderBy(v => v).ToList();
-            float limit = Mathf.Max(0.001f, sizes[sizes.Count / 2] * 4f);
+            return Mathf.Max(0.001f, sizes[sizes.Count / 2] * 4f);
+        }
+
+        static Bounds FramingBounds(Renderer[] renderers)
+        {
+            float limit = OutlierLimit(renderers);
 
             bool any = false;
             Bounds total = default;
@@ -589,6 +598,10 @@ namespace RCM_Randomizer
             foreach (var renderer in unit.GetComponentsInChildren<MeshRenderer>())
             {
                 if (!renderer.enabled) continue;
+                // the unit's helper geometry is not the unit: a fog-of-war reveal disc or minimap
+                // shape copied into the booth filled the whole frame behind a tiny model (reported
+                // on the Support Tank's portrait, an olive square)
+                if (IsHelperGeometry(renderer.transform, source)) continue;
                 var filter = renderer.GetComponent<MeshFilter>();
                 if (filter == null || filter.sharedMesh == null) continue;
 
@@ -606,6 +619,21 @@ namespace RCM_Randomizer
                 part.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
                 part.AddComponent<MeshRenderer>().sharedMaterials = renderer.sharedMaterials;
             }
+        }
+
+        // Helper geometry every unit prefab carries (selection circles, bars, minimap shape, fog-of-war
+        // reveal, spawn effect, the range and shield spheres shown while selected or shielded).
+        // The Support Tank's MinimapShape - an opaque player-coloured polygon, on by default - was
+        // the olive square its portrait showed. RoofTurrets seats guns by the same list.
+        static readonly HashSet<string> HelperChildren = new HashSet<string>
+            { "UnitSpawnedEffect", "BarCanvases2024", "SelectionCircles", "MinimapShape", "RangeCircleParent", "ShieldSphere" };
+
+        public static bool IsHelperGeometry(Transform t, Transform root)
+        {
+            for (Transform n = t; n != null && n != root; n = n.parent)
+                if (HelperChildren.Contains(n.name) || n.name.IndexOf("FogOfWar", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            return false;
         }
 
         static bool LooksEmpty(Texture2D texture)

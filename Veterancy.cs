@@ -132,6 +132,98 @@ namespace RCM_Randomizer
             if (Math.Abs(bonusPerRank - BonusPerRank) < 0.0001f) return;
             BonusPerRank = bonusPerRank;
             _bonusMod = _engineerBonusMod = null;
+            Array.Clear(_inheritedMods, 0, _inheritedMods.Length);
+        }
+
+        // ---- what a veteran puts on the field ---------------------------------------------------
+        // The rank bonus raises the unit's OWN damage, which is what DealDamage reads when the unit
+        // itself hits. Half the game's active skills hit through something they spawn instead - a
+        // mine, the Firebrand's thump, the Juggernaut's launch, a deployed turret, a creeper - and
+        // that entity deals its own damage, which no rank ever reached (34 of 68 skills, counted off
+        // the prefabs by the probe). A roof gun is its own entity too. So what a ranked unit spawns,
+        // and the roof gun it carries, fights at the unit's tier: the same damage and health bonus,
+        // through one permanent value change per tier.
+        static readonly Dictionary<int, int> InheritedTier = new Dictionary<int, int>();
+        static readonly HashSet<string> LoggedInheritance = new HashSet<string>();
+        static readonly EntityModScriptableObject[] _inheritedMods = new EntityModScriptableObject[Tiers + 1];
+
+        // the unit's own tier, what it inherited, and its carrier's (a roof gun is a child)
+        public static int EffectiveTier(EntityController entity)
+        {
+            if (entity == null) return 0;
+            int tier = TierOf(entity);
+            if (InheritedTier.TryGetValue(entity.GetInstanceID(), out int inherited)) tier = Math.Max(tier, inherited);
+            if (entity.Parent != null && entity.Parent != entity) tier = Math.Max(tier, TierOf(entity.Parent));
+            return Mathf.Clamp(tier, 0, Tiers);
+        }
+
+        static EntityModScriptableObject InheritedMod(int tier)
+        {
+            if (_inheritedMods[tier] != null) return _inheritedMods[tier];
+            var mod = ScriptableObject.CreateInstance<EntityModScriptableObject>();
+            mod.name = ModName + "_inherited" + tier;
+            mod.entityIdentifiers = new List<EntityIdentifier>();
+            mod.events = new List<EntityEvent>
+            {
+                BehaviourMods.Event(EntityController.Event.OnAddedThisEntityModToEntity,
+                    Permanent(EntityController.ChangeableValue.Damage, tier * BonusPerRank, "rcmVeterancyInheritedDamage"),
+                    Permanent(EntityController.ChangeableValue.MaxHealth, tier * BonusPerRank, "rcmVeterancyInheritedHealth")),
+            };
+            return _inheritedMods[tier] = mod;
+        }
+
+        // not stackable, one originator for every tier: a higher tier REPLACES the lower grant
+        static ChangeSpecificValue Permanent(EntityController.ChangeableValue value, float relative, string originator) =>
+            new ChangeSpecificValue
+            {
+                operatingEntities = MultipleEntitiesActionWithoutUpdate.OperatingEntities.Self,
+                valueToChange = value,
+                addType = SpecificValueChange.AddType.Relative,
+                valueToAddSource = ChangeSpecificValue.ValueToAddSource.One,
+                multiplier = relative,
+                isStackable = false,
+                originatorIdOption = ChangeSpecificValue.OriginatorIdOption.GivenString,
+                originatorId = originator,
+                durationType = ChangeSpecificValue.DurationType.Unlimited,
+            };
+
+        public static void Inherit(EntityController entity, int tier)
+        {
+            if (!Enabled || entity == null || BonusPerRank <= 0f) return;
+            tier = Mathf.Clamp(tier, 0, Tiers);
+            if (tier <= 0) return;
+            int id = entity.GetInstanceID();
+            if (InheritedTier.TryGetValue(id, out int had) && had >= tier) return;
+            InheritedTier[id] = tier;
+            entity.AddEntityMod(InheritedMod(tier), new CardId(CardId.CardType.GlobalLocaId, LocaKey));
+        }
+
+        static void PassOnToChildren(EntityController entity)
+        {
+            int tier = EffectiveTier(entity);
+            if (tier <= 0) return;
+            foreach (var child in entity._registeredChildControllers)
+                if (child != null && child != entity) Inherit(child, tier);
+        }
+
+        [HarmonyPatch(typeof(SpawnObject), "MakeEntityControllerAdjustments")]
+        static class Patch_SpawnObject_Adjust
+        {
+            static void Postfix(EntityController spawnedEntity, EventPayload payload)
+            {
+                if (!Enabled || spawnedEntity == null) return;
+                try
+                {
+                    var owner = payload.Self;
+                    if (owner == null || owner == spawnedEntity) return;
+                    int tier = EffectiveTier(owner);
+                    if (tier <= 0) return;
+                    Inherit(spawnedEntity, tier);
+                    if (owner.IsControlledByPlayer && LoggedInheritance.Add(owner.entityId + ">" + spawnedEntity.entityId + ">" + tier))
+                        TestMod.RCMManager.Log($"Randomizer: {Describe(tier)} {owner.entityId}'s {spawnedEntity.entityId} fights at its rank (+{tier * BonusPerRank:P0} damage and health)");
+                }
+                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy inheritance failed (" + e.Message + ")"); }
+            }
         }
 
         static void Refresh(EntityController entity)
@@ -196,6 +288,9 @@ namespace RCM_Randomizer
                     if (_grantingFromCredits && __instance.IsControlledByPlayer && !EngineerVeterancy.IsRestoring)
                         TestMod.RCMManager.Log($"Randomizer: {__instance.entityId} reached {Describe(TierOf(__instance))} ({TierOf(__instance)}/{MaxTier(__instance)})");
                     if (EngineerVeterancy.Applies(__instance)) EngineerVeterancy.OnRankReached(__instance, __state);
+                    // a gold unit earns its roof gun, then everything on it fights at its tier
+                    RoofTurrets.OnRankChanged(__instance, TierOf(__instance), MaxTier(__instance));
+                    PassOnToChildren(__instance);
                 }
                 catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy display failed (" + e.Message + ")"); }
             }
@@ -211,6 +306,7 @@ namespace RCM_Randomizer
                 try
                 {
                     Credits.Remove(__instance.GetInstanceID());
+                    InheritedTier.Remove(__instance.GetInstanceID()); // a pooled body starts over
                     Refresh(__instance);
                     if (!Enabled || __instance.MaxRank <= 0) return;
                     if (BonusPerRank > 0f)

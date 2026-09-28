@@ -111,11 +111,73 @@ namespace RCM_Randomizer
                 + (report.Count > 0 ? " (e.g. " + string.Join(", ", report) + ")" : ""));
         }
 
+        // The track above is built from the cards as the game ships them, before any weapon swap: a
+        // mixed card kept its host's place however strong the transplanted gun made it (a level-3
+        // Cannon Turret firing the Lava Dweller's burning shells at range 8, reported as "very
+        // powerful, should come later"). Once the swaps are baked, each mixed card is placed again
+        // by the same ranking with what it now fields - damage, splash, reach, and the on-hit effects
+        // its new gun leaves behind - and moves LATER if that says so, never earlier.
+        public static void ApplyMixed(int seed, Dictionary<string, string> donorMap)
+        {
+            if (!Enabled || donorMap == null || donorMap.Count == 0) return;
+            var list = EntityBalancingStore.EntityBalancingParametersList;
+            var cards = new List<(int index, string id, string product, float threat, float reach, float price)>();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var row = list[i];
+                if (!row.isAllowedAsBlueprint || row.inactive || Titans.IsGenerated(row.entityId) || EconomyBuildings.IsGenerated(row.entityId) || SalvagedTech.IsGenerated(row.entityId)) continue;
+                string productId = row.factoryForEntityId.hasValue ? row.factoryForEntityId.value : row.entityId;
+                if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(productId, out int productIndex)) continue;
+                var product = list[productIndex];
+                float splash = product.effectRadius1;
+                try { splash = EntityBalancingStore.EffectRadius1(productId); } catch { }
+                float dps = product.attackCooldown > 0.01f ? product.damage1 * Math.Max(1, product.firePointCount) / product.attackCooldown : 0f;
+                float threat = dps * (1f + splash);
+                if (donorMap.TryGetValue(productId, out string donor))
+                    threat *= 1f + Math.Max(-0.5f, MixedDescriptions.ProcValueGained(productId, donor));
+                cards.Add((i, row.entityId, productId, threat, product.weaponRange, Math.Max(row.cost, product.cost)));
+            }
+            if (cards.Count < 4) return;
+            var byThreat = Ranks(cards.Select(c => c.threat).ToList());
+            var byReach = Ranks(cards.Select(c => c.reach).ToList());
+            var byPrice = Ranks(cards.Select(c => c.price).ToList());
+            int trackTop = Progression.TrackTop();
+            var report = new List<string>();
+            for (int n = 0; n < cards.Count; n++)
+            {
+                var card = cards[n];
+                if (!donorMap.ContainsKey(card.product)) continue;
+                var row = list[card.index];
+                if (row.isAllowedAsStartingBlueprint) continue; // the opening deck keeps its place
+                float power = 0.55f * byThreat[n] + 0.2f * byReach[n] + 0.25f * byPrice[n];
+                var rand = new Random(seed ^ RollEngine.Fnv1a("unlock:" + card.id));
+                power = Clamp01(power + Jitter * (float)(rand.NextDouble() * 2.0 - 1.0));
+                int level = power <= Level0Share ? 0 : (int)Math.Round(1 + (power - Level0Share) / Math.Max(0.01f, 1f - Level0Share) * (trackTop - 1));
+                if (level <= row.neededExperienceLevel) continue;
+                report.Add($"{card.id} L{row.neededExperienceLevel}->{level}");
+                Applied.Add(new Saved { Index = card.index, Level = row.neededExperienceLevel });
+                row.neededExperienceLevel = level;
+                list[card.index] = row;
+                int productIndex = EntityBalancingStore.ParameterListIndexOf[card.product];
+                if (productIndex != card.index && list[productIndex].neededExperienceLevel < level)
+                {
+                    var productRow = list[productIndex];
+                    Applied.Add(new Saved { Index = productIndex, Level = productRow.neededExperienceLevel });
+                    productRow.neededExperienceLevel = level;
+                    list[productIndex] = productRow;
+                }
+            }
+            if (report.Count > 0)
+                TestMod.RCMManager.Log($"Randomizer: {report.Count} mixed cards moved later for what their new gun fields -> " + string.Join(", ", report));
+        }
+
         public static void Restore()
         {
             var list = EntityBalancingStore.EntityBalancingParametersList;
-            foreach (var saved in Applied)
+            // newest first: ApplyMixed saves a level Apply had already changed
+            for (int i = Applied.Count - 1; i >= 0; i--)
             {
+                var saved = Applied[i];
                 if (saved.Index < 0 || saved.Index >= list.Count) continue;
                 var row = list[saved.Index];
                 row.neededExperienceLevel = saved.Level;

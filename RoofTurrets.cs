@@ -90,33 +90,56 @@ namespace RCM_Randomizer
 
         // ---- world ---------------------------------------------------------------------------
 
+        // With veterancy on, the roof gun is EARNED: it goes on when the unit reaches gold, its top
+        // tier (playtest: "better if it gets it once it reaches veterancy level gold"). Rolled on the
+        // card as before, priced for what it is now - a reward most units never reach. With
+        // veterancy off there is nothing to earn it by, and it comes with the unit as it used to.
+        public static bool AtGoldOnly;
+
         [HarmonyPatch(typeof(EntityFactory), "InstantiateEntity")]
         static class Patch_InstantiateEntity_RoofTurret
         {
             static void Postfix(string entityId, EntityController __result)
             {
-                if (!Enabled || _spawning || __result == null || entityId == null) return;
+                if (!Enabled || AtGoldOnly || _spawning || __result == null || entityId == null) return;
                 if (!Assigned.TryGetValue(entityId, out string turretId)) return;
-                string tag = __result.gameObject.tag;
-                // the card that paid for the second gun is a player card; shared unit types must
-                // not hand the AI a free one
-                if (!Tags.IsPlayer(tag)) return;
-                try
-                {
-                    _spawning = true; // the factory call below re-enters this postfix
-                    var turret = EntityFactory.InstantiateEntity(PlayerSideId(turretId), __result.transform.position, __result, tag, "",
-                        __result.transform, UnitRole.None, hasBeenCalledFromAbove: true, instantiationInfo: "rcm roof turret");
-                    if (turret == null) return;
-                    // it never counted towards the unit cap, so its death must not count back
-                    turret.ignoreUnitCapDecrementWhenDestroyed = true;
-                    __result.RegisterChildController(turret);
-                    Seat(__result.transform, turret.transform);
-                    if (LoggedPairs.Add(entityId + "+" + turretId))
-                        RCMManager.Log($"Randomizer: roof turret {turretId} mounted on {entityId}");
-                }
-                catch (Exception e) { RCMManager.Log("Randomizer: roof turret failed on " + entityId + " (" + e.Message + ")"); }
-                finally { _spawning = false; }
+                Mount(__result, turretId);
             }
+        }
+
+        public static void OnRankChanged(EntityController unit, int tier, int maxTier)
+        {
+            if (!Enabled || !AtGoldOnly || unit == null || maxTier <= 0 || tier < maxTier) return;
+            if (!Assigned.TryGetValue(unit.entityId ?? "", out string turretId)) return;
+            string childId = PlayerSideId(turretId);
+            foreach (var child in unit._registeredChildControllers)
+                if (child != null && child.EntityId == childId) return; // already earned
+            if (Mount(unit, turretId) != null)
+                RCMManager.Log($"Randomizer: {unit.entityId} reached gold and earned its roof gun ({turretId})");
+        }
+
+        static EntityController Mount(EntityController unit, string turretId)
+        {
+            string tag = unit.gameObject.tag;
+            // the card that paid for the second gun is a player card; shared unit types must
+            // not hand the AI a free one
+            if (!Tags.IsPlayer(tag)) return null;
+            try
+            {
+                _spawning = true; // the factory call below re-enters the spawn postfix
+                var turret = EntityFactory.InstantiateEntity(PlayerSideId(turretId), unit.transform.position, unit, tag, "",
+                    unit.transform, UnitRole.None, hasBeenCalledFromAbove: true, instantiationInfo: "rcm roof turret");
+                if (turret == null) return null;
+                // it never counted towards the unit cap, so its death must not count back
+                turret.ignoreUnitCapDecrementWhenDestroyed = true;
+                unit.RegisterChildController(turret);
+                Seat(unit.transform, turret.transform);
+                if (LoggedPairs.Add(unit.entityId + "+" + turretId))
+                    RCMManager.Log($"Randomizer: roof turret {turretId} mounted on {unit.entityId}");
+                return turret;
+            }
+            catch (Exception e) { RCMManager.Log("Randomizer: roof turret failed on " + unit.entityId + " (" + e.Message + ")"); return null; }
+            finally { _spawning = false; }
         }
 
         // ---- card / placement preview --------------------------------------------------------
@@ -130,7 +153,8 @@ namespace RCM_Randomizer
             [HarmonyPriority(Priority.Last)]
             static void Postfix(string entityId, GameObject __result)
             {
-                if (!Enabled || __result == null || entityId == null) return;
+                // an earned gun is not on the unit you buy: the card says it comes at gold
+                if (!Enabled || AtGoldOnly || __result == null || entityId == null) return;
                 if (!Assigned.TryGetValue(entityId, out string turretId)) return;
                 try
                 {
@@ -185,16 +209,7 @@ namespace RCM_Randomizer
 
         // Helper geometry every unit prefab carries; CreateEntityMesh strips it from display models
         // only at end of frame, so without this the card would measure it and the world would not.
-        static readonly HashSet<string> HelperChildren = new HashSet<string>
-            { "UnitSpawnedEffect", "BarCanvases2024", "SelectionCircles", "MinimapShape" };
-
-        static bool IsHelperGeometry(Transform t, Transform root)
-        {
-            for (Transform n = t; n != null && n != root; n = n.parent)
-                if (HelperChildren.Contains(n.name) || n.name.IndexOf("FogOfWar", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return true;
-            return false;
-        }
+        static bool IsHelperGeometry(Transform t, Transform root) => MixedUnitPresentation.IsHelperGeometry(t, root);
 
         static bool IsUnder(Transform t, Transform ancestor)
         {
