@@ -1,7 +1,20 @@
 # Changelog
 
 
-## Unreleased
+## 0.9.6 — 2026-10-16
+
+### In short
+
+- **Veterans hit harder with their skills too.** Mines, turrets, creatures and other things a ranked unit spawns now get its rank bonus. Before, half the skills in the game didn't scale with veterancy at all.
+- **Roof guns are earned at gold rank.** A unit that rolled a roof gun gets it once it reaches gold, and the card costs less for it.
+- **Strong weapon swaps unlock later and cost more.** The Lava Dweller Turret now unlocks at level 19 instead of 3. On-hit effects like burning ground, stuns and slows are part of a swapped gun's price.
+- **The Energy Transfer Turret slows for 4 seconds** instead of 2.
+- **The melee pick offers melee units.** No more spawners in the melee blueprint choice.
+- **Clean portraits.** No more olive square behind some units' pictures.
+
+Known: a spawned unit that ranks up on its own stacks its rank bonus on top of the one it inherited. The armed Crystal Harvester only shoots when ordered, because harvesters don't pick targets on their own.
+
+The detailed notes follow.
 
 - **Strong weapon swaps come later and cost more** (reported: the Lava Dweller Turret, a Cannon Turret firing the Lava Dweller's burning shells, is "very powerful, should come later and be a bit more expensive"). The unlock track was built from the cards as the game ships them, before any swap, so a mixed card kept its host's level whatever its new gun did. Once the swaps are baked, every mixed card is ranked again by what it now fields (damage, splash, reach and on-hit effects) and moves later if that says so, never earlier: the Lava Dweller Turret goes from level 3 to 19, and 16 other mixed cards move on the test seed. On-hit effects are now priced into the swap as well: a burning patch or a creature left behind, a stun, a slow, panic or crits count as extra damage, and effects the host's own gun had come off its price. The Lava Dweller Turret costs 400 instead of 349.
 - **The Energy Transfer Turret slows for 4 seconds instead of 2.** Checked on the prefab: the slow's length is the turret's own Duration1, so the card shows the new value too. Setting: `Balance.EnergyTransferSlowSeconds`.
