@@ -40,9 +40,9 @@ namespace RCM_Randomizer
                             if (action is ShootProjectile shot && shot.projectilePrefab is MoveHomingChaoticallyToTarget)
                                 if (ProjectileNames.Add(shot.projectilePrefab.name)) found.Add(id + ":" + shot.projectilePrefab.name);
                 }
-                catch (Exception e) { TestMod.RCMManager.Log($"Randomizer: scatter weapon {id} not resolved ({e.Message})"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log($"Randomizer: scatter weapon {id} not resolved ({e.Message})"); }
             }
-            if (found.Count > 0) TestMod.RCMManager.Log($"Randomizer: scattering projectiles ({RadiusInCells:0.#} cells) -> {string.Join(", ", found)}");
+            if (found.Count > 0) RCM_GUI.RCMManager.Log($"Randomizer: scattering projectiles ({RadiusInCells:0.#} cells) -> {string.Join(", ", found)}");
         }
 
         [HarmonyPatch(typeof(MoveHomingChaoticallyToTarget), "MoveTo")]

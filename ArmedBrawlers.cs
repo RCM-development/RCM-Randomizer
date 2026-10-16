@@ -62,7 +62,7 @@ namespace RCM_Randomizer
                 Redescribe(host, donor);
             }
             if (names.Count > 0)
-                TestMod.RCMManager.Log("Randomizer: armed brawlers (melee role dropped, gun's reach kept) -> " + string.Join(", ", names));
+                RCM_GUI.RCMManager.Log("Randomizer: armed brawlers (melee role dropped, gun's reach kept) -> " + string.Join(", ", names));
         }
 
         // The third place a unit is called melee, and the one on the card the player is looking at:

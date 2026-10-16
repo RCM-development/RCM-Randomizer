@@ -1,5 +1,5 @@
 using System;
-using TestMod;
+using RCM_GUI;
 
 namespace RCM_Randomizer
 {

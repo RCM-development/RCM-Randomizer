@@ -56,7 +56,7 @@ namespace RCM_Randomizer
             string sign = multiplier > 1f ? "+" : "-";
             setLocaText(LocaKey, $"Engineer trait: {role.word} {sign}{pctShown.ToString(CultureInfo.InvariantCulture)} percent {stat.word}");
             register(ChangeId, new List<CardChangeScriptableObject> { change }, new CardId(CardId.CardType.GlobalLocaId, LocaKey));
-            TestMod.RCMManager.Log($"Randomizer: engineer trait for {engineerId}: {role.word} {sign}{pctShown}% {stat.word}");
+            RCM_GUI.RCMManager.Log($"Randomizer: engineer trait for {engineerId}: {role.word} {sign}{pctShown}% {stat.word}");
             return ChangeId;
         }
 

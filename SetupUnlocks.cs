@@ -38,22 +38,22 @@ namespace RCM_Randomizer
                 Spread(engineers.Count, i => engineers[i].engineerId, i => engineers[i].neededExperienceLevel, i => engineers[i].inactive,
                        (i, level) => { var r = engineers[i]; r.neededExperienceLevel = level; engineers[i] = r; }, offset: 2, moved);
             }
-            catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer unlocks untouched (" + e.Message + ")"); }
+            catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: engineer unlocks untouched (" + e.Message + ")"); }
             try
             {
                 var specialists = SpecialistBalancingStore._specialistBalancingScriptableObject.parameters;
                 Spread(specialists.Count, i => specialists[i].specialistId, i => specialists[i].neededExperienceLevel, i => specialists[i].inactive,
                        (i, level) => { var r = specialists[i]; r.neededExperienceLevel = level; specialists[i] = r; }, offset: 0, moved);
             }
-            catch (Exception e) { TestMod.RCMManager.Log("Randomizer: specialist unlocks untouched (" + e.Message + ")"); }
+            catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: specialist unlocks untouched (" + e.Message + ")"); }
             try
             {
                 var economies = EconomyBalancingStore._economyBalancingScriptableObject.parameters;
                 Spread(economies.Count, i => economies[i].refineryId, i => economies[i].neededExperienceLevel, i => economies[i].inactive,
                        (i, level) => { var r = economies[i]; r.neededExperienceLevel = level; economies[i] = r; }, offset: 4, moved);
             }
-            catch (Exception e) { TestMod.RCMManager.Log("Randomizer: economy unlocks untouched (" + e.Message + ")"); }
-            if (moved.Count > 0) TestMod.RCMManager.Log("Randomizer: run-setup unlocks spread -> " + string.Join(", ", moved));
+            catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: economy unlocks untouched (" + e.Message + ")"); }
+            if (moved.Count > 0) RCM_GUI.RCMManager.Log("Randomizer: run-setup unlocks spread -> " + string.Join(", ", moved));
         }
 
         // `count` rows read through accessors: the three tables are lists of three different structs

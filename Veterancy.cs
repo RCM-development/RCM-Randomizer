@@ -220,9 +220,9 @@ namespace RCM_Randomizer
                     if (tier <= 0) return;
                     Inherit(spawnedEntity, tier);
                     if (owner.IsControlledByPlayer && LoggedInheritance.Add(owner.entityId + ">" + spawnedEntity.entityId + ">" + tier))
-                        TestMod.RCMManager.Log($"Randomizer: {Describe(tier)} {owner.entityId}'s {spawnedEntity.entityId} fights at its rank (+{tier * BonusPerRank:P0} damage and health)");
+                        RCM_GUI.RCMManager.Log($"Randomizer: {Describe(tier)} {owner.entityId}'s {spawnedEntity.entityId} fights at its rank (+{tier * BonusPerRank:P0} damage and health)");
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy inheritance failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: veterancy inheritance failed (" + e.Message + ")"); }
             }
         }
 
@@ -261,7 +261,7 @@ namespace RCM_Randomizer
                     var earner = __instance.Parent != null ? __instance.Parent : __instance;
                     AddCredits(earner, KillValue(entityThatWillBeDestroyed));
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy credit failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: veterancy credit failed (" + e.Message + ")"); }
             }
         }
 
@@ -286,13 +286,13 @@ namespace RCM_Randomizer
                     Refresh(__instance);
                     if (__instance.CurrentRank == __state) return;
                     if (_grantingFromCredits && __instance.IsControlledByPlayer && !EngineerVeterancy.IsRestoring)
-                        TestMod.RCMManager.Log($"Randomizer: {__instance.entityId} reached {Describe(TierOf(__instance))} ({TierOf(__instance)}/{MaxTier(__instance)})");
+                        RCM_GUI.RCMManager.Log($"Randomizer: {__instance.entityId} reached {Describe(TierOf(__instance))} ({TierOf(__instance)}/{MaxTier(__instance)})");
                     if (EngineerVeterancy.Applies(__instance)) EngineerVeterancy.OnRankReached(__instance, __state);
                     // a gold unit earns its roof gun, then everything on it fights at its tier
                     RoofTurrets.OnRankChanged(__instance, TierOf(__instance), MaxTier(__instance));
                     PassOnToChildren(__instance);
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: veterancy display failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: veterancy display failed (" + e.Message + ")"); }
             }
         }
 

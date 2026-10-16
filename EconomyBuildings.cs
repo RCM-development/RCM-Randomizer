@@ -74,7 +74,7 @@ namespace RCM_Randomizer
             var list = EntityBalancingStore.EntityBalancingParametersList;
             if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(TemplateId, out int templateIndex))
             {
-                TestMod.RCMManager.Log("Randomizer: economy buildings need " + TemplateId + " as a template and it is missing");
+                RCM_GUI.RCMManager.Log("Randomizer: economy buildings need " + TemplateId + " as a template and it is missing");
                 return;
             }
             var names = new List<string>();
@@ -112,7 +112,7 @@ namespace RCM_Randomizer
                 SetLoca(id, spec.Name, spec.Description);
                 names.Add($"{spec.Name} (L{spec.Level}, {spec.Cost}c)");
             }
-            TestMod.RCMManager.Log("Randomizer: economy buildings -> " + string.Join(", ", names));
+            RCM_GUI.RCMManager.Log("Randomizer: economy buildings -> " + string.Join(", ", names));
         }
 
         static void Write(EntityBalancingParameters row)
@@ -176,7 +176,7 @@ namespace RCM_Randomizer
                 _pendingId = null;
                 if (__result == null || !SpecOf.TryGetValue(entityId, out var spec)) return;
                 try { Dress(__result.gameObject, spec); }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: economy building dress failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: economy building dress failed (" + e.Message + ")"); }
             }
         }
 
@@ -202,7 +202,7 @@ namespace RCM_Randomizer
                     mod.events = new List<EntityEvent> { BehaviourMods.Event(EntityController.Event.OnEachSecond, spec.Tick()) };
                     __instance.AddEntityMod(mod, new CardId(CardId.CardType.GlobalLocaId, "rcmrandomizereconomy"));
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: economy building mod failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: economy building mod failed (" + e.Message + ")"); }
             }
         }
 
@@ -252,7 +252,7 @@ namespace RCM_Randomizer
                     if (self != null && self.StillExists && (RunsWhileDying || !self.DestroyHasBeenStarted)) Second(self);
                     ModCost.Stop(ModCost.Slot.Economy, t);
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: " + ActionName + " failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: " + ActionName + " failed (" + e.Message + ")"); }
                 return UpdateStatus.Stop;
             }
             protected abstract void Second(EntityController self);

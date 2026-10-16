@@ -107,7 +107,7 @@ namespace RCM_Randomizer
             }
 
             int atZero = cards.Count(c => list[c.index].neededExperienceLevel == 0);
-            TestMod.RCMManager.Log($"Randomizer: unlock track rebuilt - {atZero} of {cards.Count} cards open at level 0, {moved} moved later"
+            RCM_GUI.RCMManager.Log($"Randomizer: unlock track rebuilt - {atZero} of {cards.Count} cards open at level 0, {moved} moved later"
                 + (report.Count > 0 ? " (e.g. " + string.Join(", ", report) + ")" : ""));
         }
 
@@ -168,7 +168,7 @@ namespace RCM_Randomizer
                 }
             }
             if (report.Count > 0)
-                TestMod.RCMManager.Log($"Randomizer: {report.Count} mixed cards moved later for what their new gun fields -> " + string.Join(", ", report));
+                RCM_GUI.RCMManager.Log($"Randomizer: {report.Count} mixed cards moved later for what their new gun fields -> " + string.Join(", ", report));
         }
 
         public static void Restore()

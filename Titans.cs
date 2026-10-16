@@ -110,7 +110,7 @@ namespace RCM_Randomizer
             }
 
             if (names.Count > 0)
-                TestMod.RCMManager.Log($"Randomizer: titans -> {string.Join(", ", names)} ({(unlocked ? "unlocked" : "locked until tier " + UnlockTier)})");
+                RCM_GUI.RCMManager.Log($"Randomizer: titans -> {string.Join(", ", names)} ({(unlocked ? "unlocked" : "locked until tier " + UnlockTier)})");
         }
 
         const string TitanText = "A Titan: several times the size, armor and firepower of the original, slow, and ruinously expensive.";
@@ -228,7 +228,7 @@ namespace RCM_Randomizer
                     if (__result == null || Game.StageMap == null) { __result?.RemoveAll(IsGenerated); return; }
                     if (RunPacing.Progress() < EarliestRunProgress) __result.RemoveAll(IsGenerated);
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: titan pool gate failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: titan pool gate failed (" + e.Message + ")"); }
             }
         }
 
@@ -250,7 +250,7 @@ namespace RCM_Randomizer
                     if (ScaleOf.TryGetValue(entityId, out float scale)) __result.transform.localScale *= scale;
                     else if (EnemyTitans && Enabled && Tags.IsAi(tag)) MaybePromoteEnemy(__result, entityId);
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: titan spawn failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: titan spawn failed (" + e.Message + ")"); }
             }
         }
 
@@ -290,7 +290,7 @@ namespace RCM_Randomizer
             Permanent(EntityController.ChangeableValue.MaxHealth, 3f, "rcmEnemyTitanHealth").Run(payload);
             Permanent(EntityController.ChangeableValue.Damage, 1f, "rcmEnemyTitanDamage").Run(payload);
             enemy.Heal(enemy.MaxHealth, enemy, true, true);
-            TestMod.RCMManager.Log($"Randomizer: enemy titan {entityId} (stage {map.CurrentStage + 1}/{map._levelMaps.Count})");
+            RCM_GUI.RCMManager.Log($"Randomizer: enemy titan {entityId} (stage {map.CurrentStage + 1}/{map._levelMaps.Count})");
         }
 
         static ChangeSpecificValue Permanent(EntityController.ChangeableValue value, float relative, string originator) =>

@@ -55,13 +55,13 @@ namespace RCM_Randomizer
             // the average is over the window, so a single stall shows up in "worst" rather than
             // being smoothed away - which is the number a stutter is actually felt as
             float averageMs = _frames > 0 ? _sumMs / _frames : 0f;
-            TestMod.RCMManager.Log($"Randomizer LOAD: {player + ai} entities (player {player}, ai {ai})"
+            RCM_GUI.RCMManager.Log($"Randomizer LOAD: {player + ai} entities (player {player}, ai {ai})"
                 + $" - {(averageMs > 0.01f ? 1000f / averageMs : 0f):F0} fps avg, worst frame {_worstMs:F0}ms,"
                 + $" {_slowFrames} of {_frames} frames over {SlowFrameMs:F0}ms"
                 + " - " + ModCost.Take(_frames) + Swaps());
             // what the entities ARE: the frame cost follows the count, so the next question is which
             // units make it up - a swarm, the mod's mixed units, or spawned helpers
-            if (player + ai >= 100) TestMod.RCMManager.Log("Randomizer LOAD mix: " + Census());
+            if (player + ai >= 100) RCM_GUI.RCMManager.Log("Randomizer LOAD mix: " + Census());
 
             _windowStart = Time.unscaledTime;
             _frames = _slowFrames = 0;

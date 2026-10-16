@@ -57,7 +57,7 @@ namespace RCM_Randomizer
                     }
                     __result = result;
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: melee pool left as the game's (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: melee pool left as the game's (" + e.Message + ")"); }
             }
         }
     }

@@ -40,7 +40,7 @@ namespace RCM_Randomizer
             {
                 if (!Enabled || __instance == null) return;
                 try { Fix(__instance); }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: spawn side check failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: spawn side check failed (" + e.Message + ")"); }
             }
         }
 
@@ -86,7 +86,7 @@ namespace RCM_Randomizer
             // nothing side-fixed in its events at all: never look again for this id
             if (found == 0) NothingToFix.Add(id);
             if (fixedCount > 0 && Logged.Add(id + "|" + own))
-                TestMod.RCMManager.Log($"Randomizer: {id} ({own}) spawns for its own side now, not the enemy's: {string.Join(", ", names)}");
+                RCM_GUI.RCMManager.Log($"Randomizer: {id} ({own}) spawns for its own side now, not the enemy's: {string.Join(", ", names)}");
             return fixedCount;
         }
 

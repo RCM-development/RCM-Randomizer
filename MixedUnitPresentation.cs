@@ -2,7 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using TestMod;
+using RCM_GUI;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -236,7 +236,7 @@ namespace RCM_Randomizer
                     }
                 }
             }
-            if (renamed.Count > 0) TestMod.RCMManager.Log("Randomizer: factory names follow their units -> " + string.Join(", ", renamed));
+            if (renamed.Count > 0) RCM_GUI.RCMManager.Log("Randomizer: factory names follow their units -> " + string.Join(", ", renamed));
         }
 
         static void RestoreFactoryNames()

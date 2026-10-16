@@ -26,7 +26,7 @@ if (-not $codeVersion -or $codeVersion.Matches[0].Groups[1].Value -ne $version) 
 
 $projects = @(
     (Join-Path $root "RCM-UnitsMixNMatch\RCM_UnitsMixNMatch.csproj"),
-    (Join-Path $repo "RCM_Randomizer.csproj")   # also builds RCM-Manager (TestMod.dll) as a reference
+    (Join-Path $repo "RCM_Randomizer.csproj")   # also builds RCM-Manager (RCM_GUI.dll) as a reference
 )
 $buildArgs = @("-c", "Release", "--no-incremental", "-v", "q", "-nologo")
 if ($GameDir) { $buildArgs += "-p:GameDir=$GameDir" }
@@ -43,8 +43,8 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force $plugins | Out-Null
 
 $files = @(
-    (Join-Path $root "RCM-Manager\bin\Release\TestMod.dll"),
-    (Join-Path $root "RCM-Manager\res\rcmoverlay"),
+    (Join-Path $root "RCM-Manager\bin\Release\RCM_GUI.dll"),
+    (Join-Path $root "RCM-Manager\res\RCM_GUI_assets"),
     (Join-Path $root "RCM-UnitsMixNMatch\bin\Release\RCM_UnitsMixNMatch.dll"),
     (Join-Path $root "RCM-UnitsMixNMatch\res\MixNMatchUnits.txt"),
     (Join-Path $repo "bin\Release\RCM_Randomizer.dll")

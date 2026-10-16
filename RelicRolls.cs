@@ -53,7 +53,7 @@ namespace RCM_Randomizer
                 try { if (RollOne(relicId, seed, intensity, luck)) rolled++; }
                 catch { }
             }
-            if (rolled > 0) TestMod.RCMManager.Log($"Randomizer: {rolled} hacks rolled");
+            if (rolled > 0) RCM_GUI.RCMManager.Log($"Randomizer: {rolled} hacks rolled");
         }
 
         static bool RollOne(string relicId, int seed, float intensity, float luck)

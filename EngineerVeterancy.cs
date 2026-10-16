@@ -67,7 +67,7 @@ namespace RCM_Randomizer
                     }
                 }
             }
-            catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer career not readable (" + e.Message + ")"); }
+            catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: engineer career not readable (" + e.Message + ")"); }
             _career = career;
             if (_convertedPendingSave) { _convertedPendingSave = false; Save(); }
             return career;
@@ -89,7 +89,7 @@ namespace RCM_Randomizer
                 paid -= Veterancy.EngineerRankCost(newRank + 1);
                 newRank++;
             }
-            TestMod.RCMManager.Log($"Randomizer: engineer career from the old 5-rank ladder converted: rank {career.Rank} -> {Veterancy.Describe(newRank)}, {paid:0.#} credits banked, {career.Hacks.Count} hacks kept");
+            RCM_GUI.RCMManager.Log($"Randomizer: engineer career from the old 5-rank ladder converted: rank {career.Rank} -> {Veterancy.Describe(newRank)}, {paid:0.#} credits banked, {career.Hacks.Count} hacks kept");
             career.Rank = newRank;
             career.Credits = paid;
             _convertedPendingSave = true;
@@ -105,7 +105,7 @@ namespace RCM_Randomizer
                 File.WriteAllText(FilePath(), string.Join(";", c.RunSeed.ToString(), c.Rank.ToString(),
                     c.Credits.ToString("0.###", CultureInfo.InvariantCulture), string.Join(",", c.Hacks), LadderVersion));
             }
-            catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer career not saved (" + e.Message + ")"); }
+            catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: engineer career not saved (" + e.Message + ")"); }
         }
 
         public static bool Applies(EntityController entity)
@@ -144,7 +144,7 @@ namespace RCM_Randomizer
                 string hack = PickHack(career.RunSeed, rank);
                 if (hack == null)
                 {
-                    TestMod.RCMManager.Log($"Randomizer: engineer rank {rank} reached, but no hack is left to grant");
+                    RCM_GUI.RCMManager.Log($"Randomizer: engineer rank {rank} reached, but no hack is left to grant");
                     continue;
                 }
                 Game.AddRelic(hack);              // the same two calls the game's debug menu uses mid-battle
@@ -152,7 +152,7 @@ namespace RCM_Randomizer
                 career.Hacks.Add(hack);
                 string name = SafeName(hack);
                 ShowMessageBox.ShowMessage_Static($"Engineer reached rank {rank}: new hack - {name}", 0, null, isAlreadyLocalized: true);
-                TestMod.RCMManager.Log($"Randomizer: engineer rank {rank}/{engineer.MaxRank} -> hack {hack} ({name})");
+                RCM_GUI.RCMManager.Log($"Randomizer: engineer rank {rank}/{engineer.MaxRank} -> hack {hack} ({name})");
             }
             career.Rank = engineer.CurrentRank;
             Save();
@@ -246,13 +246,13 @@ namespace RCM_Randomizer
                     if (originator == null && __instance.CurrentHealth > 0.01f) return;
                     var career = Current();
                     if (career.Rank <= 0 && career.Credits <= 0f) return;
-                    TestMod.RCMManager.Log($"Randomizer: engineer killed - career reset ({Veterancy.Describe(career.Rank)}, {career.Credits:0.#} credits lost; {career.Hacks.Count} hacks stay)");
+                    RCM_GUI.RCMManager.Log($"Randomizer: engineer killed - career reset ({Veterancy.Describe(career.Rank)}, {career.Credits:0.#} credits lost; {career.Hacks.Count} hacks stay)");
                     ShowMessageBox.ShowMessage_Static("Engineer lost: its veterancy is gone.", 0, null, isAlreadyLocalized: true);
                     career.Rank = 0;
                     career.Credits = 0f;
                     Save();
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer career reset failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: engineer career reset failed (" + e.Message + ")"); }
             }
         }
 
@@ -271,7 +271,7 @@ namespace RCM_Randomizer
                     float cost = EntityBalancingStore.Cost(entityId, returnOriginalValueFromBalancingFile: true);
                     Veterancy.AddCredits(engineer, Mathf.Clamp(cost / 100f, 0.5f, 3f));
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer build credit failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: engineer build credit failed (" + e.Message + ")"); }
             }
         }
 
@@ -283,7 +283,7 @@ namespace RCM_Randomizer
             static void Postfix(EntityController __instance)
             {
                 try { if (Applies(__instance)) RefreshLabel(__instance, show: true); }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: engineer label failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: engineer label failed (" + e.Message + ")"); }
             }
         }
 

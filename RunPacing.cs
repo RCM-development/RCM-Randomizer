@@ -103,7 +103,7 @@ namespace RCM_Randomizer
             if (note != _lastLogged)
             {
                 _lastLogged = note;
-                TestMod.RCMManager.Log($"Randomizer: run pacing holds back {dropped} {rarity} blueprints (run {progress:P0} in)");
+                RCM_GUI.RCMManager.Log($"Randomizer: run pacing holds back {dropped} {rarity} blueprints (run {progress:P0} in)");
             }
         }
 
@@ -114,7 +114,7 @@ namespace RCM_Randomizer
             static void Postfix(Rarity rarity, List<string> __result)
             {
                 try { Trim(__result, rarity); }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: run pacing failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: run pacing failed (" + e.Message + ")"); }
             }
         }
 

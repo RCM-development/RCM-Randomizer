@@ -1,6 +1,10 @@
 # Changelog
 
 
+## 0.9.7 — 2026-10-16
+
+- **Ships the renamed mod manager.** RCM Manager is now called RCM GUI: `TestMod.dll` became `RCM_GUI.dll` and `rcmoverlay` became `RCM_GUI_assets`. The randomizer and mix&match are rebuilt against it. **Updating from 0.9.6 or older: delete `TestMod.dll` and `rcmoverlay` from `BepInEx\plugins`.** Both versions use the same plugin ID, so BepInEx loads only one of them, and the mods do not start next to the old one. No gameplay changes.
+
 ## 0.9.6 — 2026-10-16
 
 ### In short

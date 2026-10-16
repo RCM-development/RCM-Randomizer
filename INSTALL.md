@@ -4,10 +4,11 @@
 
 1. Install **BepInEx 5** (Windows x64) into the game folder, so `Rogue Command\BepInEx\` sits next to `Rogue Command.exe`. Start the game once so BepInEx creates its folders, then close it.
 2. Extract the release zip into the game folder. It contains `BepInEx\plugins\` with:
-   - `TestMod.dll` and `rcmoverlay`: the RCM mod manager, needed by every RCM mod
+   - `RCM_GUI.dll` and `RCM_GUI_assets`: the RCM mod manager (RCM GUI), needed by every RCM mod
    - `RCM_Randomizer.dll`: this mod
    - `RCM_UnitsMixNMatch.dll` and `MixNMatchUnits.txt`: turret combinations (optional; without them the randomizer still rolls everything else)
-3. Start the game. `F5` opens the mod panel; the Randomizer widget shows the mode, seed, card count and turret pairs, and has the Reroll button.
+3. **Updating from 0.9.6 or older:** delete `TestMod.dll` and `rcmoverlay` from `BepInEx\plugins`. They are the old name of the mod manager; next to the new one, BepInEx loads only one of the two and the mods may not start.
+4. Start the game. `F5` opens the mod panel; the Randomizer widget shows the mode, seed, card count and turret pairs, and has the Reroll button.
 
 Settings are created on first start in `BepInEx\config\RCM.plugins.randomizer.cfg`. Every entry is commented; the defaults are the intended way to play.
 
@@ -23,7 +24,7 @@ The projects reference each other by folder, so clone them as siblings:
 
 ```
 <dev folder>\
-    RCM-Manager\          <- required: TestMod.dll and the publicized game assembly
+    RCM-Manager\          <- required: RCM_GUI.dll and the publicized game assembly
     RCM-Randomizer\
     RCM-UnitsMixNMatch\   <- optional: turret combinations
 ```
@@ -41,7 +42,7 @@ The game folder is auto-detected under the usual Steam library paths. Anywhere e
 dotnet build RCM-Randomizer/RCM_Randomizer.csproj -c Release -p:GameDir="E:\Games\Rogue Command"
 ```
 
-Copy `RCM-Randomizer\bin\Release\RCM_Randomizer.dll`, `RCM-Manager\bin\Release\TestMod.dll` and `RCM-Manager\res\rcmoverlay` into the game's `BepInEx\plugins`, plus the mix&match DLL and `res\MixNMatchUnits.txt` if you built it.
+Copy `RCM-Randomizer\bin\Release\RCM_Randomizer.dll`, `RCM-Manager\bin\Release\RCM_GUI.dll` and `RCM-Manager\res\RCM_GUI_assets` into the game's `BepInEx\plugins`, plus the mix&match DLL and `res\MixNMatchUnits.txt` if you built it.
 
 ### Release zip
 

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
-using TestMod;
+using RCM_GUI;
 
 namespace RCM_Randomizer
 {

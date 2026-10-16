@@ -46,7 +46,7 @@ namespace RCM_Randomizer
             static void Postfix(AiBehaviourManager __instance)
             {
                 try { Apply(__instance); }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: enemy AI edit failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: enemy AI edit failed (" + e.Message + ")"); }
             }
         }
 
@@ -120,7 +120,7 @@ namespace RCM_Randomizer
             }
 
             if (report.Count > 0)
-                TestMod.RCMManager.Log($"Randomizer: enemy AI ({(engaged ? "Engaged" : "all difficulties")}) -> " + string.Join(", ", report));
+                RCM_GUI.RCMManager.Log($"Randomizer: enemy AI ({(engaged ? "Engaged" : "all difficulties")}) -> " + string.Join(", ", report));
         }
 
         // Read-only: what Apply WOULD touch on this manager, so the probe can check the matching

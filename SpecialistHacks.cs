@@ -99,9 +99,9 @@ namespace RCM_Randomizer
                     }
                     if (rewritten > 0) report.Add($"{specialistId}({skill.ShortName}) x{rewritten}");
                 }
-                catch (Exception e) { TestMod.RCMManager.Log($"Randomizer: specialist hacks for {specialistId} failed ({e.Message})"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log($"Randomizer: specialist hacks for {specialistId} failed ({e.Message})"); }
             }
-            if (report.Count > 0) TestMod.RCMManager.Log("Randomizer: specialist hacks refitted to rolled skills -> " + string.Join(", ", report));
+            if (report.Count > 0) RCM_GUI.RCMManager.Log("Randomizer: specialist hacks refitted to rolled skills -> " + string.Join(", ", report));
         }
 
         // Which hacks belong to the stock skill is decided by their wording, per specialist, from

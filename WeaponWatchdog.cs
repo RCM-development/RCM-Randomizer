@@ -144,7 +144,7 @@ namespace RCM_Randomizer
                 {
                     // never silently: a watchdog that throws for one unit type is a blind spot for exactly it
                     if (__instance != null && FailedOnce.Add(__instance.entityId))
-                        TestMod.RCMManager.Log("Randomizer: weapon watchdog failed on " + __instance.entityId + ": " + e.GetType().Name + " " + e.Message);
+                        RCM_GUI.RCMManager.Log("Randomizer: weapon watchdog failed on " + __instance.entityId + ": " + e.GetType().Name + " " + e.Message);
                 }
                 ModCost.Stop(ModCost.Slot.Watchdog, t);
             }
@@ -170,7 +170,7 @@ namespace RCM_Randomizer
             try { var n = NearestEnemy(entity, out float cells); if (n != null) near = n.entityId + " at " + cells.ToString("0.#"); }
             catch (Exception e) { near = "lookup failed: " + e.Message; }
             string donor = DonorOf != null ? DonorOf(entity.entityId) : null;
-            TestMod.RCMManager.Log($"Randomizer: TRACE {entity.entityId}#{key} <- {donor ?? "-"}: canAttack={entity.CanAttack} range={entity.WeaponRange:0.##} melee={entity.melee}"
+            RCM_GUI.RCMManager.Log($"Randomizer: TRACE {entity.entityId}#{key} <- {donor ?? "-"}: canAttack={entity.CanAttack} range={entity.WeaponRange:0.##} melee={entity.melee}"
                 + $" target={(target == null ? "none" : target.entityId + " at " + (Vector2.Distance(entity.Position2d, target.Position2d) * 0.1f).ToString("0.#") + (attack.IsCurrentTargetInRange ? " IN range" : " out of range"))}"
                 + $" order={(attack?._attackTarget == null ? "none" : attack._attackTarget.entityId)} nearestEnemy={near}"
                 + $" mode={(attack == null ? "no attack" : attack.CurrentAttackMode.ToString() + (attack.IsDisabled ? " DISABLED" : ""))}"
@@ -198,7 +198,7 @@ namespace RCM_Randomizer
             {
                 Reported.Add(entity.entityId);
                 string cannot = DonorOf != null ? DonorOf(entity.entityId) : null;
-                TestMod.RCMManager.Log($"Randomizer: WEAPON STUCK - {entity.entityId}"
+                RCM_GUI.RCMManager.Log($"Randomizer: WEAPON STUCK - {entity.entityId}"
                     + (string.IsNullOrEmpty(cannot) ? " (stock weapon)" : " <- " + cannot)
                     + $" can never attack: it is not melee and its weapon range is {entity.WeaponRange:0.##},"
                     + " so it finds no enemies to target at all");
@@ -228,7 +228,7 @@ namespace RCM_Randomizer
                 Reported.Add(entity.entityId);
                 string Dist(EntityController e) => e == null ? "-" : $"{Vector2.Distance(entity.Position2d, e.Position2d) * 0.1f:0.#}";
                 var movement = entity._movement;
-                TestMod.RCMManager.Log($"Randomizer: WEAPON IDLE - {entity.entityId} <- {mixedDonor}, engaged {Time.time - state.EnemyNearSince:0.#}s without arming a shot, weapon range {entity.WeaponRange:0.##}:"
+                RCM_GUI.RCMManager.Log($"Randomizer: WEAPON IDLE - {entity.entityId} <- {mixedDonor}, engaged {Time.time - state.EnemyNearSince:0.#}s without arming a shot, weapon range {entity.WeaponRange:0.##}:"
                     + $" nearest enemy {(near != null ? near.entityId + " at " + cells.ToString("0.#") : "-")}"
                     + (underFire ? $", under fire from {state.LastHitBy.entityId} at {Dist(state.LastHitBy)} (its range {state.LastHitBy.WeaponRange:0.#})" : ", not under fire")
                     + (hasOrder ? $", ordered to attack {ordered.entityId} at {Dist(ordered)}" : ", no attack order")
@@ -264,7 +264,7 @@ namespace RCM_Randomizer
             Reported.Add(entity.entityId);
             string donor = DonorOf != null ? DonorOf(entity.entityId) : null;
             float distance = Vector2.Distance(entity.Position2d, target.Position2d) * 0.1f;
-            TestMod.RCMManager.Log($"Randomizer: WEAPON STUCK - {entity.entityId}"
+            RCM_GUI.RCMManager.Log($"Randomizer: WEAPON STUCK - {entity.entityId}"
                 + (string.IsNullOrEmpty(donor) ? " (stock weapon)" : " <- " + donor)
                 + $" {verdict}. target {target.entityId} at {distance:0.#} cells, weapon range {entity.WeaponRange:0.#},"
                 + $" cooldown {cooldown:0.##}s, held for {holding:0.#}s, aiming={(entity.aiming == null ? "none" : entity.aiming.GetType().Name + "/" + (entity.aiming.IsReady ? "ready" : "not ready"))}"

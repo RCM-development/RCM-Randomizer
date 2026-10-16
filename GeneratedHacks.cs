@@ -87,7 +87,7 @@ namespace RCM_Randomizer
                 else parameters.inactive = true;
                 RelicBalancingStore._relicBalancingScriptableObject.parameters[index] = parameters;
             }
-            if (wanted.Count > 0) TestMod.RCMManager.Log($"Randomizer: {wanted.Count} hacks generated, {written} unlocked ({Progression.Describe()})");
+            if (wanted.Count > 0) RCM_GUI.RCMManager.Log($"Randomizer: {wanted.Count} hacks generated, {written} unlocked ({Progression.Describe()})");
         }
 
         public static void Deactivate()

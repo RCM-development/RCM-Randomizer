@@ -48,7 +48,7 @@ namespace RCM_Randomizer
             var templates = list.Where(r => r.factoryForEntityId.hasValue && r.isAllowedAsBlueprint && !r.inactive
                                             && !Titans.IsGenerated(r.entityId) && !IsGenerated(r.entityId))
                                 .OrderBy(r => r.entityId, StringComparer.Ordinal).ToList();
-            if (templates.Count == 0) { TestMod.RCMManager.Log("Randomizer: salvage found no factory template"); return; }
+            if (templates.Count == 0) { RCM_GUI.RCMManager.Log("Randomizer: salvage found no factory template"); return; }
 
             // Measured, not assumed: of 322 rows that are not cards, only 20 carry the Unit role and
             // 2 have a cost - enemy units are spawned by the AI, so the table leaves both blank. They
@@ -73,7 +73,7 @@ namespace RCM_Randomizer
                                        && !string.IsNullOrEmpty(r.prefabLocation)
                                        && Worth(r) >= 150) // skip the swarm spawns: a card for a Slime is not a reward
                            .OrderBy(r => r.entityId, StringComparer.Ordinal).ToList();
-            if (pool.Count == 0) TestMod.RCMManager.Log("Randomizer: salvage found no enemy unit to offer");
+            if (pool.Count == 0) RCM_GUI.RCMManager.Log("Randomizer: salvage found no enemy unit to offer");
             if (pool.Count == 0) return;
 
             float rosterValue = RosterValue(list, RosterQuantile);
@@ -123,7 +123,7 @@ namespace RCM_Randomizer
                 names.Add(unitName + " (L" + card.neededExperienceLevel + ", " + card.cost + "c)");
             }
             if (names.Count > 0)
-                TestMod.RCMManager.Log("Randomizer: salvage cards (" + names.Count + " of " + poolSize + " enemy units that qualify, priced at roster value " + rosterValue.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "/crystal) -> " + string.Join(", ", names));
+                RCM_GUI.RCMManager.Log("Randomizer: salvage cards (" + names.Count + " of " + poolSize + " enemy units that qualify, priced at roster value " + rosterValue.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + "/crystal) -> " + string.Join(", ", names));
         }
 
         // Priced against the player's own roster, not the enemy's table cost. What a factory card is worth

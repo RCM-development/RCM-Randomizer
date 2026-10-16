@@ -93,7 +93,7 @@ namespace RCM_Randomizer
                     items.Add(("upgrade", row.upgradeId, i, Safe(() => Loca.UpgradeName(row.upgradeId))));
                 }
             }
-            catch (Exception e) { TestMod.RCMManager.Log("Randomizer: vault scan failed (" + e.Message + ")"); return; }
+            catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: vault scan failed (" + e.Message + ")"); return; }
 
             // seeded order, so every profile opens the vault differently
             items = items.OrderBy(item => item.id, StringComparer.Ordinal).ToList();
@@ -153,7 +153,7 @@ namespace RCM_Randomizer
                 report.Add($"L{level} {item.kind} {item.name}");
             }
             if (report.Count > 0)
-                TestMod.RCMManager.Log($"Randomizer: vault opened - {report.Count} items from the game's own switched-off content: " + string.Join(", ", report));
+                RCM_GUI.RCMManager.Log($"Randomizer: vault opened - {report.Count} items from the game's own switched-off content: " + string.Join(", ", report));
         }
 
         public static void Restore()

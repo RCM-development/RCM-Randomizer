@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using TestMod;
+using RCM_GUI;
 
 namespace RCM_Randomizer
 {

@@ -264,7 +264,7 @@ namespace RCM_Randomizer
 
             string path = Path.Combine(BepInEx.Paths.BepInExRootPath, "RandomizerProbe.txt");
             File.WriteAllText(path, sb.ToString());
-            TestMod.RCMManager.Log("Randomizer: prefab facts written to " + path);
+            RCM_GUI.RCMManager.Log("Randomizer: prefab facts written to " + path);
         }
 
         // what a run-start harvester can roll right now, with the chance of each, plus what is

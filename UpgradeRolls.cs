@@ -53,7 +53,7 @@ namespace RCM_Randomizer
                 catch { }
             }
             // the caller batches one cache refresh for the whole reapply
-            if (rolled > 0) TestMod.RCMManager.Log($"Randomizer: {rolled} upgrade cards rolled");
+            if (rolled > 0) RCM_GUI.RCMManager.Log($"Randomizer: {rolled} upgrade cards rolled");
         }
 
         static bool RollOne(string upgradeId, int seed, float intensity, float luck)

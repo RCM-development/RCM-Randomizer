@@ -34,7 +34,7 @@ namespace RCM_Randomizer
             static void Prefix(EntityController __instance)
             {
                 try { Tweak(__instance); }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: aura tweak failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: aura tweak failed (" + e.Message + ")"); }
             }
         }
 

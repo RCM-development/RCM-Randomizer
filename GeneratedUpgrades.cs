@@ -118,7 +118,7 @@ namespace RCM_Randomizer
                 UpgradeBalancingStore._upgradeBalancingScriptableObject.parameters[index] = parameters;
             }
             if (specs.Count > 0)
-                TestMod.RCMManager.Log($"Randomizer: {specs.Count} upgrades generated, {specs.Count - locked} unlocked ({Progression.Describe()})");
+                RCM_GUI.RCMManager.Log($"Randomizer: {specs.Count} upgrades generated, {specs.Count - locked} unlocked ({Progression.Describe()})");
         }
 
         public static void Deactivate()

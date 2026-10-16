@@ -52,7 +52,7 @@ namespace RCM_Randomizer
                 else parameters.inactive = true;
                 EntityBalancingStore.EntityBalancingParametersList[index] = parameters;
             }
-            if (count > 0) TestMod.RCMManager.Log($"Randomizer: {count} drops generated, {written} unlocked ({Progression.Describe()})");
+            if (count > 0) RCM_GUI.RCMManager.Log($"Randomizer: {count} drops generated, {written} unlocked ({Progression.Describe()})");
         }
 
         public static void Deactivate()
@@ -160,7 +160,7 @@ namespace RCM_Randomizer
                     __result.entityId = entityId;
                     __result.UpdateOriginalChangeableValues();
                 }
-                catch (Exception e) { TestMod.RCMManager.Log("Randomizer: drop id stamp failed (" + e.Message + ")"); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: drop id stamp failed (" + e.Message + ")"); }
             }
         }
     }
