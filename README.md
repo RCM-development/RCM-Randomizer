@@ -46,7 +46,7 @@ See [docs/balance-analysis.md](docs/balance-analysis.md) for the full code analy
 
 ## Status
 
-Version 0.9.7 (0.9.0 was the first release); see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills, the setup-screen/run consistency, the economy buildings, mixed units aiming and firing, unit and factory names, and (0.9.6) roof guns earned at gold and rank bonuses passed to spawned units. Relic, hack and message texts and the melee pool are verified at the menu and in the data. Analysis and roadmap: `docs/balance-analysis.md`.
+Version 0.9.8 (0.9.0 was the first release); see [CHANGELOG.md](CHANGELOG.md) for what is in it and the known issues. Verified in play for stat rolls, turret combinations, names and portraits, starter skills, the setup-screen/run consistency, the economy buildings, mixed units aiming and firing, unit and factory names, and (0.9.6) roof guns earned at gold and rank bonuses passed to spawned units. Relic, hack and message texts and the melee pool are verified at the menu and in the data. Analysis and roadmap: `docs/balance-analysis.md`.
 
 ## Install
 

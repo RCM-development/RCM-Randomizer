@@ -1,7 +1,7 @@
 # Changelog
 
 
-## Unreleased
+## 0.9.8 — 2026-10-22
 
 - **Captured tech only offers buildings that fight** (reported: the Captured PCX Defect Detector "does not do anything"). The table tags some of the enemy's scripted mission buildings as turrets. The Defect Detector has no weapon, its skill only replays its selection effect, and its real job is an AI trigger that drops a hunting squad on the player's Engineer. Captured buildings now need a weapon of their own, or must build units that have one. That removes five duds (Defect Detector, Waypoint Marker, Capacity X-tender, Builder Base, Spawn Nest seeder) and leaves 11 candidates. The log lists the pool. New audit check.
 
