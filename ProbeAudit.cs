@@ -84,7 +84,7 @@ namespace RCM_Randomizer
             WritePools(Path.ChangeExtension(path, null) + "Pools.txt", donorOf);
             WriteSkillDamage(Path.ChangeExtension(path, null) + "SkillDamage.txt");
             WritePortraitParts(Path.ChangeExtension(path, null) + "PortraitParts.txt", donorOf);
-            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret" });
+            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase" });
         }
 
         // An entity's events and actions with their serialized fields, following entity mods one

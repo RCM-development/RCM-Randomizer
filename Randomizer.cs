@@ -797,12 +797,24 @@ namespace RCM_Randomizer
                     if (!EntityBalancingStore.HasRole(entityId, UnitRole.Turret)) continue;
                     if ((EntityBalancingStore.Tech(entityId) & Tech.Ancient) != 0) continue;
                     if (EntityBalancingStore.Cost(entityId, returnOriginalValueFromBalancingFile: true) <= 0) continue;
+                    // Only what fights: a gun of its own, or a factory whose units have one. The table
+                    // tags the enemy's scripted mission buildings Turret too, and captured they do
+                    // nothing on the player's side - reported for the PCX Defect Detector, whose
+                    // "skill" replays its selection effect and whose real job is an AI trigger that
+                    // drops a hunting squad on the player's Engineer. Same for the Waypoint Marker,
+                    // the Capacity X-tender (raises the AI's unit cap), the Builder Base (builder
+                    // drones, AI cap, loot chests) and the Spawn Nest seeder.
+                    string product = EntityBalancingStore.ProductEntityId(entityId);
+                    bool fights = EntityBalancingStore.Damage1(entityId, returnOriginalValueFromBalancingFile: true) > 0f
+                                  || (product != null && EntityBalancingStore.Damage1(product, returnOriginalValueFromBalancingFile: true) > 0f);
+                    if (!fights) continue;
                     candidates.Add(entityId);
                 }
                 catch { }
             }
             candidates.Sort(StringComparer.Ordinal);
             if (candidates.Count == 0) return;
+            string pool = string.Join(", ", candidates);
 
             // Fielding the enemy's own turrets is late-run material: the ladder decides whether
             // any of it is available and how many pieces come with it (tier 2 = one, tier 4 = three).
@@ -855,7 +867,7 @@ namespace RCM_Randomizer
                 _capturedTechIds.Add(copyId);
             }
             if (_capturedTechIds.Count > 0)
-                RCMManager.Log("Randomizer: captured tech unlocked: " + string.Join(", ", _capturedTechIds));
+                RCMManager.Log("Randomizer: captured tech unlocked: " + string.Join(", ", _capturedTechIds) + " (drawn from " + pool + ")");
         }
 
         void RestoreCapturedTech()

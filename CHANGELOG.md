@@ -1,6 +1,10 @@
 # Changelog
 
 
+## Unreleased
+
+- **Captured tech only offers buildings that fight** (reported: the Captured PCX Defect Detector "does not do anything"). The table tags some of the enemy's scripted mission buildings as turrets. The Defect Detector has no weapon, its skill only replays its selection effect, and its real job is an AI trigger that drops a hunting squad on the player's Engineer. Captured buildings now need a weapon of their own, or must build units that have one. That removes five duds (Defect Detector, Waypoint Marker, Capacity X-tender, Builder Base, Spawn Nest seeder) and leaves 11 candidates. The log lists the pool. New audit check.
+
 ## 0.9.7 — 2026-10-16
 
 - **Ships the renamed mod manager.** RCM Manager is now called RCM GUI: `TestMod.dll` became `RCM_GUI.dll` and `rcmoverlay` became `RCM_GUI_assets`. The randomizer and mix&match are rebuilt against it. **Updating from 0.9.6 or older: delete `TestMod.dll` and `rcmoverlay` from `BepInEx\plugins`.** Both versions use the same plugin ID, so BepInEx loads only one of them, and the mods do not start next to the old one. No gameplay changes.
