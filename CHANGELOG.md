@@ -1,6 +1,10 @@
 # Changelog
 
 
+## 0.9.9 — 2026-10-23
+
+- **The RCM panel opens with F6.** F5 is the game's own "select all skill buildings" key, so opening the panel also selected every skill building. F6 is bound to nothing in the game; checked against every key binding, rebinds included. The key can be changed, also to a combination, in `BepInEx\config\RCM.plugins.modmanager.cfg` under `Hotkeys.TogglePanel`. The bundled RCM GUI includes that change (RCM-development/RCM-Manager#2). No gameplay changes.
+
 ## 0.9.8 — 2026-10-22
 
 - **Captured tech only offers buildings that fight** (reported: the Captured PCX Defect Detector "does not do anything"). The table tags some of the enemy's scripted mission buildings as turrets. The Defect Detector has no weapon, its skill only replays its selection effect, and its real job is an AI trigger that drops a hunting squad on the player's Engineer. Captured buildings now need a weapon of their own, or must build units that have one. That removes five duds (Defect Detector, Waypoint Marker, Capacity X-tender, Builder Base, Spawn Nest seeder) and leaves 11 candidates. The log lists the pool. New audit check.
