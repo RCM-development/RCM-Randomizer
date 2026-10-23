@@ -85,6 +85,27 @@ namespace RCM_Randomizer
             WriteSkillDamage(Path.ChangeExtension(path, null) + "SkillDamage.txt");
             WritePortraitParts(Path.ChangeExtension(path, null) + "PortraitParts.txt", donorOf);
             WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase" });
+            WriteKeyBindings(Path.ChangeExtension(path, null) + "Keys.txt");
+        }
+
+        // Every key the game's input actions are bound to, as the player has them now (rebinds
+        // included): what a mod hotkey must stay clear of.
+        static void WriteKeyBindings(string path)
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                foreach (var asset in UnityEngine.Resources.FindObjectsOfTypeAll<UnityEngine.InputSystem.InputActionAsset>())
+                {
+                    sb.AppendLine("# " + asset.name);
+                    foreach (var map in asset.actionMaps)
+                        foreach (var action in map.actions)
+                            foreach (var binding in action.bindings)
+                                sb.AppendLine($"{map.name}/{action.name}\t{binding.effectivePath}\t{(binding.isPartOfComposite ? "part of " + binding.name : binding.isComposite ? "composite" : "")}");
+                }
+            }
+            catch (Exception e) { sb.AppendLine("FAILED " + e); }
+            File.WriteAllText(path, sb.ToString());
         }
 
         // An entity's events and actions with their serialized fields, following entity mods one

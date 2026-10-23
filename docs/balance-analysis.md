@@ -130,7 +130,7 @@ Phase-2 options, in increasing order of effort:
 - Roll spec per archetype: allowed stats, bounds, illegal combos, K stats per roll.
 - Seed: per-run = `Game.RandomSeedForRun` via `SeededRandom` clone with sub-seed ≥ 10_000; per-save = sidecar seed file in `Profiles/Profile{N}/`.
 - Hook: apply rolls when a run starts/loads (postfix on `Game.InitFromJson` + run setup; before first level, avoiding the FrameBudgetPreSpawner refresh bug).
-- F5-panel: mode toggle (off / per-save / per-run), roll magnitude, reroll-seed button (per-save mode).
+- RCM panel (F6): mode toggle (off / per-save / per-run), roll magnitude, reroll-seed button (per-save mode).
 
 **M2 — Budget balancing layer**
 - Power-delta pricing (§4.1) with weights from fitted elasticities + upgrade-card anchors; compensation via Cost & ProductionDuration multipliers; caps/floors/illegal-combo rejection (resample until legal).

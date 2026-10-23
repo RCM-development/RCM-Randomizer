@@ -8,13 +8,13 @@
    - `RCM_Randomizer.dll`: this mod
    - `RCM_UnitsMixNMatch.dll` and `MixNMatchUnits.txt`: turret combinations (optional; without them the randomizer still rolls everything else)
 3. **Updating from 0.9.6 or older:** delete `TestMod.dll` and `rcmoverlay` from `BepInEx\plugins`. They are the old name of the mod manager; next to the new one, BepInEx loads only one of the two and the mods may not start.
-4. Start the game. `F5` opens the mod panel; the Randomizer widget shows the mode, seed, card count and turret pairs, and has the Reroll button.
+4. Start the game. `F6` opens the mod panel (set another key or a combination in `BepInEx\config\RCM.plugins.modmanager.cfg`, `Hotkeys.TogglePanel`); the Randomizer widget shows the mode, seed, card count and turret pairs, and has the Reroll button.
 
 Settings are created on first start in `BepInEx\config\RCM.plugins.randomizer.cfg`. Every entry is commented; the defaults are the intended way to play.
 
 ### Uninstalling
 
-Delete the files above from `BepInEx\plugins`. **Finish or abandon your current run first:** a save that owns a generated upgrade or hack needs the mod to define that card. To play stock without uninstalling, set the mode to `Off` in the F5 panel instead; that is always safe.
+Delete the files above from `BepInEx\plugins`. **Finish or abandon your current run first:** a save that owns a generated upgrade or hack needs the mod to define that card. To play stock without uninstalling, set the mode to `Off` in the RCM panel (F6) instead; that is always safe.
 
 The seed files in the game's `Profiles` folder (`randomizerSeed_<n>.txt`) are harmless and can stay.
 

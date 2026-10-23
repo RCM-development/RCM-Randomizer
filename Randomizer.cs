@@ -289,7 +289,7 @@ namespace RCM_Randomizer
                     if (!_loggedOffMode)
                     {
                         _loggedOffMode = true;
-                        RCMManager.Log("Randomizer: mode is Off, nothing applied (cycle mode in the F5 panel to enable)");
+                        RCMManager.Log("Randomizer: mode is Off, nothing applied (cycle mode in the RCM panel, F6, to enable)");
                     }
                     return;
                 }
@@ -1538,7 +1538,7 @@ namespace RCM_Randomizer
             foreach (EntityController entity in controllers.AiEntities()) entity.UpdateOriginalChangeableValues();
         }
 
-        // ---- F5 panel ------------------------------------------------------------------------
+        // ---- RCM panel (F6) ------------------------------------------------------------------------
 
         // Panel rows are fixed-height prefabs: a label that wraps draws over the row below it,
         // so every line has to stay short (~22 chars) instead of one long status string.
