@@ -84,8 +84,49 @@ namespace RCM_Randomizer
             WritePools(Path.ChangeExtension(path, null) + "Pools.txt", donorOf);
             WriteSkillDamage(Path.ChangeExtension(path, null) + "SkillDamage.txt");
             WritePortraitParts(Path.ChangeExtension(path, null) + "PortraitParts.txt", donorOf);
-            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase" });
+            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase", "PCXTunneler", "PCXTunnelExit" });
             WriteKeyBindings(Path.ChangeExtension(path, null) + "Keys.txt");
+            WriteSkillCards(Path.ChangeExtension(path, null) + "SkillCards.txt");
+        }
+
+        // Every unit a rolled skill went to, with the numbers its card and its button work from: a
+        // skill whose unit has no mana pool (or less than the cost) shows on the card and can never
+        // be cast.
+        static void WriteSkillCards(string path)
+        {
+            var sb = new StringBuilder();
+            foreach (var pair in SkillInjector.Assignments.OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                try
+                {
+                    string id = pair.Key;
+                    var spec = SkillInjector.Get(pair.Value);
+                    float maxMana0 = EntityBalancingStore.MaxMana(id, returnOriginalValueFromBalancingFile: true), maxMana = EntityBalancingStore.MaxMana(id);
+                    float cost0 = EntityBalancingStore.SkillManaCost(id, returnOriginalValueFromBalancingFile: true), cost = EntityBalancingStore.SkillManaCost(id);
+                    float cardMana = UIHelper.CalculateDynamicBlueprintValue(id, null, EntityBalancingStore.ChangeableValue.MaxMana, null, false);
+                    var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
+                    var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                    bool ok = maxMana >= cost && cost > 0f && cardMana >= cost;
+                    sb.AppendLine($"{(ok ? "ok   " : "BROKEN")} {id} [{pair.Value}] maxMana {F(maxMana0)}->{F(maxMana)} card {F(cardMana)} | cost {F(cost0)}->{F(cost)} (spec {F(spec?.ManaCost ?? 0)})"
+                        + $" | skillRange {EntityBalancingStore.SkillRange(id, returnOriginalValueFromBalancingFile: true)}->{EntityBalancingStore.SkillRange(id)} | prefab skill={(c != null ? c.hasActiveSkill.ToString() : "?")}"
+                        + $" | available={(spec?.IsAvailable == null || spec.IsAvailable())} | text=\"{Loca.SkillDescription(id)}\"");
+                }
+                catch (Exception e) { sb.AppendLine("FAILED " + pair.Key + " " + e.Message); }
+            }
+            // texts must come back off the cards when the skills go elsewhere (the Little Lighter
+            // report): run the self-test on a unit this seed did not give a skill
+            try
+            {
+                string unit = SkillInjector.Assignments.ContainsKey("LittleLighter") ? "FlameArrow" : "LittleLighter";
+                sb.AppendLine("restore test " + SkillInjector.TestTextRestore(unit, "firemines"));
+                int stale = 0;
+                var ours = new System.Collections.Generic.HashSet<string>(SkillInjector.Catalog.Select(s => s.ShortName + ": " + s.Description));
+                foreach (var entry in Loca.SkillDescriptionDictionary[Loca.DefaultLanguage])
+                    if (ours.Contains(entry.Value) && !SkillInjector.Assignments.Keys.Any(k => k.Trim().ToLowerInvariant() == entry.Key)) { stale++; sb.AppendLine("STALE skill text on " + entry.Key + ": " + entry.Value); }
+                sb.AppendLine($"{stale} stale skill texts");
+            }
+            catch (Exception e) { sb.AppendLine("restore test FAILED " + e.Message); }
+            File.WriteAllText(path, sb.ToString());
         }
 
         // Every key the game's input actions are bound to, as the player has them now (rebinds

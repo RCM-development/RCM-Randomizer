@@ -496,7 +496,13 @@ namespace RCM_Randomizer
             if (spec != null) SetSkillDescription(entityId, spec.ShortName + ": " + spec.Description);
         }
 
-        public static void ClearAssignments() { Assigned.Clear(); ForceReplaced.Clear(); }
+        public static void ClearAssignments()
+        {
+            Assigned.Clear();
+            ForceReplaced.Clear();
+            RestoreDescriptions();
+        }
+        public static IReadOnlyDictionary<string, string> Assignments => Assigned;
 
         // the rolled skill of a run-start unit whose STOCK skill was swapped out, else null
         public static SkillSpec ReplacedSkillOf(string entityId)
@@ -507,21 +513,84 @@ namespace RCM_Randomizer
         // reloads its localization.
         static readonly Dictionary<string, string> Descriptions = new Dictionary<string, string>();
 
+        // What each skill text replaced, per language (null: the unit had no skill text at all).
+        // The texts were never taken back: when the next apply cycle (a reroll, a new run in
+        // PerRun mode, a progression change) gave the skills to other units, the old ones kept
+        // "Fire Mines: ..." on their cards with no skill, no mana and no icon behind it - reported
+        // on a Little Lighter. A unit whose stock skill was swapped kept the swap's text after
+        // getting its own skill back.
+        static readonly Dictionary<string, Dictionary<string, string>> OriginalTexts = new Dictionary<string, Dictionary<string, string>>();
+        static readonly Dictionary<string, Dictionary<string, string>> WrittenTexts = new Dictionary<string, Dictionary<string, string>>();
+
+        static void WriteText(string language, Dictionary<string, string> dict, string key, string text)
+        {
+            if (!OriginalTexts.TryGetValue(language, out var saved)) OriginalTexts[language] = saved = new Dictionary<string, string>();
+            if (!WrittenTexts.TryGetValue(language, out var written)) WrittenTexts[language] = written = new Dictionary<string, string>();
+            bool has = dict.TryGetValue(key, out string now);
+            // the table's text is the stock one unless it is what we wrote there last: first write
+            // of a cycle, or the game reloaded its tables since (they hold the stock text again)
+            if (!written.TryGetValue(key, out string last) || !has || now != last)
+                saved[key] = has ? now : null;
+            dict[key] = text;
+            written[key] = text;
+        }
+
         static void SetSkillDescription(string entityId, string text)
         {
             string key = entityId.Trim().ToLowerInvariant();
             Descriptions[key] = text;
             if (Loca.SkillDescriptionDictionary.Count < 1) Loca.Init();
-            foreach (var language in Loca.SkillDescriptionDictionary.Values) language[key] = text;
+            foreach (var language in Loca.SkillDescriptionDictionary) WriteText(language.Key, language.Value, key, text);
         }
 
         public static void ReapplyDescriptions()
         {
             if (Descriptions.Count == 0) return;
             if (Loca.SkillDescriptionDictionary.Count < 1) Loca.Init();
-            foreach (var language in Loca.SkillDescriptionDictionary.Values)
+            foreach (var language in Loca.SkillDescriptionDictionary)
                 foreach (var entry in Descriptions)
-                    language[entry.Key] = entry.Value;
+                    WriteText(language.Key, language.Value, entry.Key, entry.Value);
+        }
+
+        static void RestoreDescriptions()
+        {
+            foreach (var language in OriginalTexts)
+            {
+                if (!Loca.SkillDescriptionDictionary.TryGetValue(language.Key, out var dict)) continue;
+                WrittenTexts.TryGetValue(language.Key, out var written);
+                foreach (var entry in language.Value)
+                {
+                    // only what still reads as ours: a text the game has rewritten since is its own
+                    if (written == null || !written.TryGetValue(entry.Key, out string ours)) continue;
+                    if (!dict.TryGetValue(entry.Key, out string now) || now != ours) continue;
+                    if (entry.Value == null) dict.Remove(entry.Key); else dict[entry.Key] = entry.Value;
+                }
+            }
+            OriginalTexts.Clear();
+            WrittenTexts.Clear();
+            Descriptions.Clear();
+        }
+
+        // Probe self-test: takes every skill text back, checks nothing of ours is left on a card,
+        // gives one unit a skill and takes it back again, then puts this seed's assignments back.
+        public static string TestTextRestore(string testUnit, string testSkill)
+        {
+            var keepAssigned = new Dictionary<string, string>(Assigned);
+            var keepForced = new HashSet<string>(ForceReplaced);
+            string key = testUnit.Trim().ToLowerInvariant();
+            var english = Loca.SkillDescriptionDictionary[Loca.DefaultLanguage];
+            english.TryGetValue(key, out string before);
+            ClearAssignments();
+            var ourTexts = new HashSet<string>(Catalog.Select(s => s.ShortName + ": " + s.Description));
+            int leftAfterClear = Loca.SkillDescriptionDictionary.Values.Sum(d => d.Values.Count(ourTexts.Contains));
+            english.TryGetValue(key, out string stock);
+            Assign(testUnit, testSkill);
+            english.TryGetValue(key, out string during);
+            ClearAssignments();
+            english.TryGetValue(key, out string after);
+            foreach (var pair in keepAssigned) Assign(pair.Key, pair.Value, keepForced.Contains(pair.Key));
+            bool ok = leftAfterClear == 0 && after == stock && during != stock;
+            return $"{(ok ? "ok" : "FAILED")}: {leftAfterClear} of our skill texts left after clearing; {testUnit} stock \"{stock ?? "(none)"}\" -> assigned \"{during}\" -> cleared \"{after ?? "(none)"}\"; {keepAssigned.Count} assignments restored";
         }
 
         // When a roll swaps out a unit's own skill (reduced chance, config-gated), the unit's

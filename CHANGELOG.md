@@ -1,6 +1,10 @@
 # Changelog
 
 
+## Unreleased
+
+- **No more skills on a card that the unit doesn't have** (reported by a player: a Little Lighter showed "Fire Mines", but there was no skill to use). A rolled skill writes its text into the game's skill-text table, and that text was never taken back. When a reroll, a new run in PerRun mode or a progression change gave the skills to other units, the old unit kept the text on its card, with no skill, no mana and no icon behind it. A unit whose own skill had been swapped kept the swap's text after getting its own skill back. Each skill text now remembers what it replaced and is put back whenever the skills are handed out again. New audit check: a self-test gives a unit a skill, takes it away and checks the card, and the audit also checks that every skilled unit has the mana for its skill.
+
 ## 0.9.9 — 2026-10-23
 
 - **The RCM panel opens with F6.** F5 is the game's own "select all skill buildings" key, so opening the panel also selected every skill building. F6 is bound to nothing in the game; checked against every key binding, rebinds included. The key can be changed, also to a combination, in `BepInEx\config\RCM.plugins.modmanager.cfg` under `Hotkeys.TogglePanel`. The bundled RCM GUI includes that change (RCM-development/RCM-Manager#2). No gameplay changes.
