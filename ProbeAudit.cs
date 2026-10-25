@@ -84,9 +84,52 @@ namespace RCM_Randomizer
             WritePools(Path.ChangeExtension(path, null) + "Pools.txt", donorOf);
             WriteSkillDamage(Path.ChangeExtension(path, null) + "SkillDamage.txt");
             WritePortraitParts(Path.ChangeExtension(path, null) + "PortraitParts.txt", donorOf);
-            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase", "PCXTunneler", "PCXTunnelExit" });
+            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase", "PCXTunneler", "PCXTunnelExit", "CF3", "CF0.5", "CF5" });
             WriteKeyBindings(Path.ChangeExtension(path, null) + "Keys.txt");
             WriteSkillCards(Path.ChangeExtension(path, null) + "SkillCards.txt");
+            WriteCapturedFixTest(Path.ChangeExtension(path, null) + "CapturedFix.txt");
+        }
+
+        // The captured Tunneler rewire, run on dormant instances: the skill's spawn must leave the
+        // AI's identifier for the clicked position and dig the player copy of the exit; the exit must
+        // bring up the player copies of its tanks; the prefab assets must stay as they were.
+        static void WriteCapturedFixTest(string path)
+        {
+            var sb = new StringBuilder();
+            string Signature(EntityController ec) => string.Join(" ", CapturedFixes.Spawns(ec)
+                .Where(p => p.Value.spawn == SpawnObject.Spawn.EntityId)
+                .Select(p => $"{p.Key}:{p.Value.entityId}/{p.Value.operatingEntities}/{p.Value.startingPosition}/{p.Value.tagHandling}"));
+            void Run(string prefabOf, System.Collections.Generic.Dictionary<string, string> map, bool retarget, int expect)
+            {
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(prefabOf)) as UnityEngine.GameObject;
+                if (prefab == null) { sb.AppendLine("FAILED no prefab for " + prefabOf); return; }
+                string assetBefore = Signature(prefab.GetComponent<EntityController>());
+                bool was = prefab.activeSelf;
+                prefab.SetActive(false);
+                UnityEngine.GameObject dormant = null;
+                try
+                {
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    var c = dormant.GetComponent<EntityController>();
+                    int n = CapturedFixes.Apply(c, map, retarget);
+                    string after = Signature(c);
+                    bool asset = assetBefore == Signature(prefab.GetComponent<EntityController>());
+                    bool ok = n == expect && asset && map.Values.All(v => after.Contains(":" + v + "/")) && !map.Keys.Any(k => after.Contains(":" + k + "/"))
+                              && (!retarget || after.Contains("OnActivateSkill:test_exit/Self/PayloadPosition/OverwriteWithOwnTag"));
+                    sb.AppendLine($"{(ok ? "ok" : "FAILED")} {prefabOf}: {n} spawns rewired (expected {expect}), asset untouched={asset}");
+                    sb.AppendLine("   before: " + assetBefore);
+                    sb.AppendLine("   after : " + after);
+                }
+                catch (Exception e) { sb.AppendLine($"FAILED {prefabOf} {e.Message}"); }
+                finally
+                {
+                    prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            Run(CapturedFixes.TunnelerId, new System.Collections.Generic.Dictionary<string, string> { ["PCXTunnelExit"] = "test_exit" }, true, 1);
+            Run("PCXTunnelExit", new System.Collections.Generic.Dictionary<string, string> { ["CF0.5"] = "test_cf05", ["CF3"] = "test_cf3", ["CF5"] = "test_cf5" }, false, 5);
+            File.WriteAllText(path, sb.ToString());
         }
 
         // Every unit a rolled skill went to, with the numbers its card and its button work from: a
@@ -203,7 +246,9 @@ namespace RCM_Randomizer
                 {
                     var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
                     var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
-                    sb.AppendLine($"# {id} duration1={F(EntityBalancingStore.Duration1(id, returnOriginalValueFromBalancingFile: true))} now={F(EntityBalancingStore.Duration1(id))}");
+                    sb.AppendLine($"# {id} duration1={F(EntityBalancingStore.Duration1(id, returnOriginalValueFromBalancingFile: true))} now={F(EntityBalancingStore.Duration1(id))}"
+                        + (c != null ? $" | tag={prefab.tag} skill={c.hasActiveSkill} mode={c.activeSkillOrProduction} type={c.activeSkillType} filter={c.entitySkillFilter.user}/{c.entitySkillFilter.type}" : "")
+                        + $" | skillRange={EntityBalancingStore.SkillRange(id, returnOriginalValueFromBalancingFile: true)} maxMana={F(EntityBalancingStore.MaxMana(id, returnOriginalValueFromBalancingFile: true))} cost={F(EntityBalancingStore.SkillManaCost(id, returnOriginalValueFromBalancingFile: true))} buildCost={EntityBalancingStore.Cost(id, returnOriginalValueFromBalancingFile: true)} dmg1={F(EntityBalancingStore.Damage1(id, returnOriginalValueFromBalancingFile: true))}");
                     if (c?.events != null) foreach (var ev in c.events) DumpEvent(ev, "", 0);
                 }
                 catch (Exception e) { sb.AppendLine(id + " FAILED " + e.Message); }

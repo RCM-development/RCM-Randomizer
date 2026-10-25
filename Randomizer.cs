@@ -53,6 +53,7 @@ namespace RCM_Randomizer
         ConfigEntry<string> _rollExcludeIds;
         ConfigEntry<bool> _enemyRolls;
         ConfigEntry<int> _capturedTechCount;
+        ConfigEntry<string> _capturedTechForce;
         ConfigEntry<bool> _progression;
         ConfigEntry<bool> _unlockByPower;
         ConfigEntry<float> _level0Share;
@@ -220,6 +221,8 @@ namespace RCM_Randomizer
                 "Enemy-only units get their own seeded variance that escalates every level of the run: bigger bands, stronger upward bias. Every run's opposition drifts differently.");
             _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
                 new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
+            _capturedTechForce = Config.Bind("Diagnostics", "CapturedTechForce", "",
+                "Testing: an enemy building id (e.g. PCXTunneler) that the first captured pick always takes, if it is in the pool and the ladder allows captured tech at all. Empty: drawn by the seed.");
             _veterancyChevrons = Config.Bind("Progression", "VeterancyChevrons", true,
                 "Three-tier veterancy: units earn ranks from kills and show them in the veteran icon left of their health bar, tinted bronze, silver or gold. The stock game has the rank counter and the icon but nothing that ever earns or pays a rank.");
             Veterancy.Enabled = _veterancyChevrons.Value;
@@ -337,7 +340,7 @@ namespace RCM_Randomizer
                 // an empty starter set - without this, that result would stick until something
                 // unrelated happened to invalidate the cache
                 var starters = CollectStarterIds();
-                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_unlockByPower.Value}|{_level0Share.Value:F2}|{_spreadSetupUnlocks.Value}|{_setupUnlockTop.Value}|{_salvageCount.Value}|{_salvageFirstLevel.Value}|{_vault.Value}|{_vaultFirstLevel.Value}|{_advancedUpgradeCount.Value}|{_advancedHackCount.Value}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}|{_slowTurretSeconds.Value:F1}";
+                string signature = $"{starters.Count}|{_replaceSpecialistSkills.Value}|{_flagOnlySkills.Value}|{_roofTurrets.Value}|{_mode.Value}|{_intensity.Value:F2}|{_maxStatsPerRoll.Value}|{luck:F2}|{_turretShuffle.Value}|{_mixedShare.Value:F2}|{_rollDrops.Value}|{_promoteDropRarities.Value}|{_skillReplaceChance.Value:F2}|{_rollUpgrades.Value}|{escalation}|{_enemyRolls.Value}|{_capturedTechCount.Value}|{_rollHacks.Value}|{_generatedUpgradeCount.Value}|{_engineerTrait.Value}|{CurrentEngineerId()}|{_generatedHackCount.Value}|{_generatedDropCount.Value}|{_enableHijack.Value}|{_shopTweaks.Value}|{_shopRarityBumps.Value}|{_watchWeapons.Value}|{_titans.Value}|{_titanUnitCount.Value}|{_titanTurretCount.Value}|{_titanUnlockTier.Value}|{_enemyTitans.Value}|{_auraTweaks.Value}|{Progression.Signature()}|{_unlockByPower.Value}|{_level0Share.Value:F2}|{_spreadSetupUnlocks.Value}|{_setupUnlockTop.Value}|{_salvageCount.Value}|{_salvageFirstLevel.Value}|{_vault.Value}|{_vaultFirstLevel.Value}|{_advancedUpgradeCount.Value}|{_advancedHackCount.Value}|{_runPacing.Value}|{_runPacingStart.Value:F2}|{_veterancyChevrons.Value}|{_veterancyRankCost.Value:F1}|{_veterancyBonus.Value:F2}|{_engineerVeterancy.Value}|{_engineerRankCostFactor.Value:F1}|{_slowTurretSeconds.Value:F1}|{_capturedTechForce.Value}";
                 bool alreadyCorrect = _appliedSeed == seed && _appliedConfigSignature == signature
                                       && EntityBalancingStoreHasOurChanges();
                 if (alreadyCorrect)
@@ -793,6 +796,8 @@ namespace RCM_Randomizer
                     if (EntityBalancingStore.IsInactive(entityId)) continue;
                     if (!EntityBalancingStore.IsAllowedForAi(entityId)) continue;
                     if (EntityBalancingStore.IsAllowedAsBlueprint(entityId)) continue;
+                    // buildings the mod rewires to work on the player's side (CapturedFixes)
+                    if (CapturedFixes.IsFixable(entityId)) { candidates.Add(entityId); continue; }
                     if (!EntityBalancingStore.IsBuilding(entityId)) continue;
                     if (!EntityBalancingStore.HasRole(entityId, UnitRole.Turret)) continue;
                     if ((EntityBalancingStore.Tech(entityId) & Tech.Ancient) != 0) continue;
@@ -830,7 +835,8 @@ namespace RCM_Randomizer
             if (Progression.Enabled) count = Mathf.Min(count, allowedByLadder);
             for (int n = 0; n < count && candidates.Count > 0; n++)
             {
-                string pick = candidates[rand.Next(candidates.Count)];
+                string forced = (_capturedTechForce.Value ?? "").Trim();
+                string pick = n == 0 && forced.Length > 0 && candidates.Contains(forced) ? forced : candidates[rand.Next(candidates.Count)];
                 candidates.Remove(pick);
                 if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(pick, out int index)) continue;
 
@@ -859,9 +865,10 @@ namespace RCM_Randomizer
                         string.IsNullOrEmpty(productText) || productText == productId ? "Built by a captured enemy structure." : productText);
                 }
                 PlayerCopies.Write(parameters);
+                CapturedFixes.Prepare(pick, copyId);
                 string name = MixedUnitPresentation.BaseName(pick) ?? Loca.BlueprintName(pick);
-                string text = null;
-                try { text = Loca.BlueprintDescription(pick); } catch { }
+                string text = CapturedFixes.DescriptionOf(pick);
+                if (text == null) { try { text = Loca.BlueprintDescription(pick); } catch { } }
                 PlayerCopies.SetLoca(copyId, "Captured " + (string.IsNullOrEmpty(name) ? pick : name),
                     string.IsNullOrEmpty(text) || text == pick ? "The enemy's own turret, captured and rebuilt for your side." : text);
                 _capturedTechIds.Add(copyId);
@@ -873,6 +880,7 @@ namespace RCM_Randomizer
         void RestoreCapturedTech()
         {
             PlayerCopies.Deactivate(PlayerCopies.CapturedPrefix);
+            CapturedFixes.Clear();
             _capturedTechIds.Clear();
         }
 
