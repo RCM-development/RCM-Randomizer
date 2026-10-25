@@ -1,7 +1,7 @@
 # Changelog
 
 
-## Unreleased
+## 0.10.0 — 2026-10-25
 
 - **The PCX Tunneler can be captured, and it works.** Its skill digs a tunnel exit that brings up CF tanks. For the AI it digs next to damaged front-line units anywhere on the map, so captured it dug nothing (traced by epic400). The captured Tunneler now digs where you click, and the exit and its CF 0.5 / CF3 / CF5 tanks are player copies, so your hacks reach them and enemy rolls don't. Checked at the menu: the rewire runs on dormant instances and leaves the prefab assets untouched. New setting `Diagnostics.CapturedTechForce` makes the first captured pick a given building, for testing.
 - **No more skills on a card that the unit doesn't have** (reported by a player: a Little Lighter showed "Fire Mines", but there was no skill to use). A rolled skill writes its text into the game's skill-text table, and that text was never taken back. When a reroll, a new run in PerRun mode or a progression change gave the skills to other units, the old unit kept the text on its card, with no skill, no mana and no icon behind it. A unit whose own skill had been swapped kept the swap's text after getting its own skill back. Each skill text now remembers what it replaced and is put back whenever the skills are handed out again. New audit check: a self-test gives a unit a skill, takes it away and checks the card, and the audit also checks that every skilled unit has the mana for its skill.
