@@ -85,7 +85,8 @@ namespace RCM_Randomizer
                         // only a name this mod wrote has to be unique - except between such twins: the same
                         // unit with the same donor is the same thing on both sides (FlameArrow/FlameArrowAI)
                         else if (renamed && seen.TryGetValue(shown, out string other) && other != unit
-                                 && !(MixedUnitPresentation.BaseName(other) == original && donorOf?.Invoke(other) == donor))
+                                 && !(MixedUnitPresentation.BaseName(other) == original
+                                      && MixedUnitPresentation.BaseName(donorOf?.Invoke(other) ?? "") == MixedUnitPresentation.BaseName(donor ?? "")))
                             problem = "same name as " + other;
                         if (renamed) seen[shown] = unit;
                         if (!string.IsNullOrEmpty(donor) && renamed) mixedNames.Add($"{original,-26} <- {MixedUnitPresentation.BaseName(donor) ?? donor,-26} => {shown}");

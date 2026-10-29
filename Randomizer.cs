@@ -54,6 +54,7 @@ namespace RCM_Randomizer
         ConfigEntry<bool> _enemyRolls;
         ConfigEntry<int> _capturedTechCount;
         ConfigEntry<string> _capturedTechForce;
+        ConfigEntry<string> _seedOverride;
         ConfigEntry<bool> _progression;
         ConfigEntry<bool> _unlockByPower;
         ConfigEntry<float> _level0Share;
@@ -221,6 +222,8 @@ namespace RCM_Randomizer
                 "Enemy-only units get their own seeded variance that escalates every level of the run: bigger bands, stronger upward bias. Every run's opposition drifts differently.");
             _capturedTechCount = Config.Bind("Enemies", "CapturedTechCount", 2,
                 new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
+            _seedOverride = Config.Bind("Diagnostics", "SeedOverride", "",
+                "Testing: a seed number to roll with instead of the profile's (the seed file is left alone). Empty: the profile's seed.");
             _capturedTechForce = Config.Bind("Diagnostics", "CapturedTechForce", "",
                 "Testing: an enemy building id (e.g. PCXTunneler) that the first captured pick always takes, if it is in the pool and the ladder allows captured tech at all. Empty: drawn by the seed.");
             _veterancyChevrons = Config.Bind("Progression", "VeterancyChevrons", true,
@@ -1143,13 +1146,14 @@ namespace RCM_Randomizer
             var changes = new List<CardChangeScriptableObject>();
             var bakes = new List<(string id, float damage, float cooldown, float range, float gain)>();
             var durations = new List<string>();
+            var statBakes = new List<(string id, string read, float value)>();
             foreach (var pair in _donorMap)
             {
                 float costMult;
                 float rangeRatio = 1f;
                 float rangeGain = 0f;   // a melee host has no range to multiply: it is given one
                 float splashDelta = 0f;
-                float cooldownRatio = 1f, damageRatio = 1f;
+                float cooldownRatio = 1f, damageRatio = 1f, dpsFactor = 1f;
                 try
                 {
                     // The weapon brings its RHYTHM, the chassis keeps its DPS. A swapped gun used to fire at
@@ -1165,7 +1169,15 @@ namespace RCM_Randomizer
                         float baseBarrels = Math.Max(1, EntityBalancingStore.FirePointCount(pair.Key));
                         float donorBarrels = Math.Max(1, EntityBalancingStore.FirePointCount(pair.Value));
                         cooldownRatio = Mathf.Clamp(donorCooldown / baseCooldown, 0.2f, 10f);
-                        damageRatio = Mathf.Clamp(cooldownRatio * baseBarrels / donorBarrels, 0.1f, 12f);
+                        // The clamp keeps a shot's damage sane, but where it bites the DPS is no longer
+                        // the chassis's - found by a five-seed sweep with every unit mixed: a 1-barrel
+                        // Charge Laser Tank wearing the 20-barrel Crystal Cleaner gun needed 0.034, got
+                        // 0.1, and fired 3.25x its DPS at 1.02x the price; the Missile Truck on Fire
+                        // Artillery needed 21, got 12, and kept 0.56x. Wider bounds keep DPS exact for
+                        // nearly every pair, and what still differs is priced below.
+                        float raw = cooldownRatio * baseBarrels / donorBarrels;
+                        damageRatio = Mathf.Clamp(raw, 0.05f, 25f);
+                        if (raw > 0f) dpsFactor = damageRatio / raw;
                     }
 
                     // the weapon's RANGE travels with it: a short-range gun on a long-range
@@ -1222,7 +1234,8 @@ namespace RCM_Randomizer
                     if (baseCost > 1f && donorCost > 1f)
                         delta += Mathf.Clamp(0.15f * Mathf.Log(donorCost / baseCost), -0.15f, 0.30f);
 
-                    costMult = Mathf.Clamp(Mathf.Exp(delta / 1.15f), 0.6f, 2f);
+                    // DPS the clamp could not keep is paid for in full (power follows DPS one to one)
+                    costMult = Mathf.Clamp(Mathf.Clamp(Mathf.Exp(delta / 1.15f), 0.6f, 2f) * dpsFactor, 0.5f, 3f);
                 }
                 catch { continue; }
                 if (overrides.TryGetValue(pair.Value, out float extra)) costMult *= extra;
@@ -1252,7 +1265,10 @@ namespace RCM_Randomizer
                             if (read == "SelfEffectRadius1" && donorValue > 0.01f) continue;
                             bool radius = read.StartsWith("SelfEffectRadius", StringComparison.Ordinal);
                             string how;
-                            if (!hostElsewhere.Contains(read)) { changes.Add(AddChange(DonorStats.StatOf(read), donorValue - hostValue, pair.Key)); how = ""; }
+                            // into the base row (WeaponRows), not as a card change: card changes are
+                            // summed, so a stat roll on the same value skewed it (Fire Artillery slow
+                            // 7.25 s instead of 5.75); in the row the roll scales the donor's number
+                            if (!hostElsewhere.Contains(read)) { statBakes.Add((pair.Key, read, donorValue)); how = ""; }
                             else if (!radius) { DonorStats.RewriteOnSpawn(pair.Key, read, donorValue); how = " (actions)"; }
                             else if (!DonorStats.FiringIdentifiersReading(pair.Value, read).Overlaps(DonorStats.HostIdentifiers(pair.Key)))
                             { DonorStats.RewriteOnSpawn(pair.Key, read, donorValue); how = " (hit area)"; }
@@ -1269,6 +1285,8 @@ namespace RCM_Randomizer
             }
             foreach (var bake in bakes)
                 WeaponRows.Bake(bake.id, bake.damage, bake.cooldown, bake.range, bake.gain);
+            foreach (var bake in statBakes)
+                WeaponRows.BakeStat(bake.id, bake.read, bake.value);
             if (durations.Count > 0) RCMManager.Log("Randomizer: donor durations carried -> " + string.Join(", ", durations));
             if (changes.Count == 0) return;
 
@@ -1464,6 +1482,8 @@ namespace RCM_Randomizer
 
         int CurrentSeed()
         {
+            // testing: a fixed seed without touching the profile's seed file
+            if (int.TryParse((_seedOverride.Value ?? "").Trim(), out int forced)) return forced;
             if (_mode.Value == Mode.PerRun) return Game.RandomSeedForRun;
             return GetOrCreateProfileSeed();
         }
@@ -1531,6 +1551,10 @@ namespace RCM_Randomizer
             change.operation = operation;
             change.value = value;
             change.side = CardChangeScriptableObject.Side.Irrelevant; // default Side.False would skip AI-allowed entities
+            // the default also skips every Ancient-tech entity (meant for general hacks); these
+            // changes name their one entity, and the Ancient turrets' rolls, weapon pricing, splash
+            // and donor durations were silently dropped (found by the five-seed sweep)
+            change.cardMustNotHaveOneOfTheseTechs = Tech.None;
             change.onlyForTheseEntityIds = new List<string> { entityId };
             change.entityIdsNotAllowed = new List<string>();
             return change;

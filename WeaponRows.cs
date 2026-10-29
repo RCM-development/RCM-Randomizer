@@ -20,19 +20,50 @@ namespace RCM_Randomizer
     // reroll or a mode change never compounds a second swap onto the first.
     public static class WeaponRows
     {
-        struct Saved { public float Damage, Cooldown, Range; }
+        struct Saved { public float Damage, Cooldown, Range, Duration1, Duration2, Radius1, Radius2; }
         static readonly Dictionary<int, Saved> SavedRows = new Dictionary<int, Saved>();
 
         public static bool Any => SavedRows.Count > 0;
+
+        static Saved SaveOnce(int index, EntityBalancingParameters row)
+        {
+            if (!SavedRows.ContainsKey(index))
+                SavedRows[index] = new Saved
+                {
+                    Damage = row.damage1, Cooldown = row.attackCooldown, Range = row.weaponRange,
+                    Duration1 = row.duration1, Duration2 = row.duration2, Radius1 = row.effectRadius1, Radius2 = row.effectRadius2,
+                };
+            return SavedRows[index];
+        }
+
+        // The donor's durations and hit-area radii (DonorStats), for the same reason: as a card change,
+        // "x (donor / host)" on a host with a +15% roll summed to 1 + 0.15 - 0.667 - the Fire Artillery's
+        // slow came out 7.25 s instead of 5.75 (found by the seed sweep). In the row, the roll scales the
+        // donor's number as it would have scaled the host's.
+        public static void BakeStat(string entityId, string read, float value)
+        {
+            if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(entityId, out int index)) return;
+            var list = EntityBalancingStore.EntityBalancingParametersList;
+            var row = list[index];
+            SaveOnce(index, row);
+            switch (read)
+            {
+                case "SelfDuration1": row.duration1 = value; break;
+                case "SelfSpawnTtl": row.duration2 = value; break;
+                case "SelfEffectRadius1": row.effectRadius1 = value; break;
+                case "SelfEffectRadius2": row.effectRadius2 = value; break;
+                default: return;
+            }
+            list[index] = row;
+            ClearCache(entityId);
+        }
 
         public static void Bake(string entityId, float damageRatio, float cooldownRatio, float rangeRatio, float rangeGain)
         {
             if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(entityId, out int index)) return;
             var list = EntityBalancingStore.EntityBalancingParametersList;
             var row = list[index];
-            if (!SavedRows.ContainsKey(index))
-                SavedRows[index] = new Saved { Damage = row.damage1, Cooldown = row.attackCooldown, Range = row.weaponRange };
-            var original = SavedRows[index];
+            var original = SaveOnce(index, row);
             row.damage1 = original.Damage * damageRatio;
             row.attackCooldown = original.Cooldown * cooldownRatio;
             row.weaponRange = original.Range * rangeRatio + rangeGain;
@@ -50,10 +81,30 @@ namespace RCM_Randomizer
                 row.damage1 = entry.Value.Damage;
                 row.attackCooldown = entry.Value.Cooldown;
                 row.weaponRange = entry.Value.Range;
+                row.duration1 = entry.Value.Duration1;
+                row.duration2 = entry.Value.Duration2;
+                row.effectRadius1 = entry.Value.Radius1;
+                row.effectRadius2 = entry.Value.Radius2;
                 list[entry.Key] = row;
                 ClearCache(row.entityId);
             }
             SavedRows.Clear();
+        }
+
+        // a donor's own duration/radius as its weapon has it, for the audit: a donor that is itself a
+        // mixed host has its row baked to ITS donor's number, but what it lends is its prefab's weapon
+        public static bool TryOriginalStat(string entityId, string read, out float value)
+        {
+            value = 0f;
+            if (!EntityBalancingStore.ParameterListIndexOf.TryGetValue(entityId, out int index) || !SavedRows.TryGetValue(index, out var saved)) return false;
+            switch (read)
+            {
+                case "SelfDuration1": value = saved.Duration1; return true;
+                case "SelfSpawnTtl": value = saved.Duration2; return true;
+                case "SelfEffectRadius1": value = saved.Radius1; return true;
+                case "SelfEffectRadius2": value = saved.Radius2; return true;
+                default: return false;
+            }
         }
 
         // the vanilla numbers, for the audit: once baked, the row itself no longer has them

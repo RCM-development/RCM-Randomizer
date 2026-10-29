@@ -21,7 +21,7 @@ namespace RCM_Randomizer
                 "cost0", "cost", "build0", "build", "cap",
                 "hp0", "hp", "shield", "armor0", "armor",
                 "dmg0", "dmg", "cd0", "cd", "range0", "range", "splash", "barrels",
-                "dps0", "dps", "speed", "sight", "mana", "skillCost", "income", "cap0", "unitCap", "unitCost", "template" }));
+                "dps0", "dps", "speed", "sight", "mana", "skillCost", "income", "cap0", "unitCap", "unitCost", "template", "unitCost0" }));
             foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
             {
                 // Titans are measured even while locked: they are the content most likely to be mispriced
@@ -61,7 +61,8 @@ namespace RCM_Randomizer
                         // units a factory keeps alive come from the UNIT's row (UnitCap.MaxPlayerCapacity); the
                         // card's own capacity is how many of the building may be placed
                         EntityBalancingStore.MaxCapacity(unit).ToString(),
-                        unit == card ? "0" : EntityBalancingStore.Cost(unit).ToString(), SalvagedTech.TemplateOf(card) ?? "-" }));
+                        unit == card ? "0" : EntityBalancingStore.Cost(unit).ToString(), SalvagedTech.TemplateOf(card) ?? "-",
+                        unit == card ? "0" : EntityBalancingStore.Cost(unit, returnOriginalValueFromBalancingFile: true).ToString() }));
                 }
                 catch (Exception e) { sb.AppendLine(row.entityId + "\tFAILED\t" + e.Message); }
             }
@@ -91,6 +92,106 @@ namespace RCM_Randomizer
             WriteVanillaTexts(Path.ChangeExtension(path, null) + "VanillaTexts.tsv");
             WriteGuardTest(Path.ChangeExtension(path, null) + "Guards.txt", donorOf);
             WriteDurationTest(Path.ChangeExtension(path, null) + "Durations.txt", donorOf);
+            WriteSpawnChainTest(Path.ChangeExtension(path, null) + "SpawnChain.txt", donorOf);
+        }
+
+        // End to end, per mixed pair, on a dormant instance: the real mixer swap, then the mod's own
+        // spawn fixes in the order Harmony runs them, then what the instance now does - durations and
+        // hit areas the donor's, out-of-combat guards widened, nothing thrown. Also the order of every
+        // Init prefix as Harmony has them, and identifier NAME clashes: the mixer only copies a donor
+        // identifier whose name the host lacks, so on a clash the donor's attack uses the host's.
+        static void WriteSpawnChainTest(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            int pairs = 0, failures = 0, clashes = 0;
+            try
+            {
+                var init = HarmonyLib.AccessTools.Method(typeof(EntityController), "Init");
+                var info = HarmonyLib.Harmony.GetPatchInfo(init);
+                if (info != null)
+                    foreach (var p in info.Prefixes.OrderByDescending(p => p.priority).ThenBy(p => p.index))
+                        sb.AppendLine($"prefix order: {p.PatchMethod.DeclaringType?.FullName} priority {p.priority} index {p.index}");
+            }
+            catch (Exception e) { sb.AppendLine("patch order FAILED " + e.Message); }
+            var mixer = HarmonyLib.AccessTools.TypeByName("RCM_UnitsMixNMatch.UnitMixer");
+            var initType = mixer != null ? HarmonyLib.AccessTools.Inner(mixer, "Patch_EntityController_Init") : null;
+            var prefix = initType != null ? HarmonyLib.AccessTools.Method(initType, "Prefix") : null;
+            if (prefix == null) { sb.AppendLine("FAILED mixer swap entry not found"); File.WriteAllText(path, sb.ToString()); return; }
+            string Sig(EntityIdentifier i) => $"{i.radius}x{F(i.radiusMultiplier)}/{i.team}/{i.type}/{i.additionalConditionsToBecomeTarget?.Count ?? 0}";
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string host = row.entityId, donor = null;
+                try { donor = donorOf?.Invoke(host); } catch { }
+                if (string.IsNullOrEmpty(donor)) continue;
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(host)) as UnityEngine.GameObject;
+                if (prefab == null) continue;
+                pairs++;
+                UnityEngine.GameObject dormant = null;
+                bool was = prefab.activeSelf;
+                var problems = new System.Collections.Generic.List<string>();
+                string assetBefore = string.Join("|", DonorStats.ScanController(prefab.GetComponent<EntityController>(), true).Select(k => k.Key + "=" + k.Value))
+                                   + string.Join("|", prefab.GetComponent<EntityController>().EntityIdentifiers.Select(Sig));
+                try
+                {
+                    prefab.SetActive(false);
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    prefab.SetActive(was);
+                    var c = dormant.GetComponent<EntityController>();
+                    c.entityId = host;
+                    // name clashes, before the swap merges the lists
+                    var donorPrefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(donor)) as UnityEngine.GameObject;
+                    var dc = donorPrefab != null ? donorPrefab.GetComponent<EntityController>() : null;
+                    var donorNamed = new System.Collections.Generic.HashSet<string>(DonorStats.ScanController(dc, true)
+                        .Where(k => k.Key.StartsWith("EntityIdentifier[", StringComparison.Ordinal)).Select(k => k.Key.Substring(17, k.Key.IndexOf(']') - 17)));
+                    if (dc?.EntityIdentifiers != null)
+                        foreach (var di in dc.EntityIdentifiers)
+                        {
+                            if (di == null || !donorNamed.Contains(di.name)) continue;
+                            var hi = c.EntityIdentifiers.FirstOrDefault(x => x != null && x.name == di.name);
+                            if (hi != null && Sig(hi) != Sig(di)) { clashes++; sb.AppendLine($"CLASH {host} <- {donor}: donor's '{di.name}' {Sig(di)} replaced by the host's {Sig(hi)}"); }
+                        }
+                    prefix.Invoke(null, new object[] { c, null });
+                    if (DonorStats.Rewrites.TryGetValue(host, out var map)) DonorStats.Apply(c, map, DonorStats.HostIdentifiers(host));
+                    ArmedBrawlers.WidenGuards(c);
+                    var after = DonorStats.ScanController(c, true);
+                    if (map != null)
+                        foreach (var read in map.Keys)
+                        {
+                            if (read.StartsWith("SelfEffectRadius", StringComparison.Ordinal))
+                            {
+                                var hostOwn = DonorStats.HostIdentifiers(host);
+                                foreach (var k in after.Where(k => k.Key.StartsWith("EntityIdentifier[", StringComparison.Ordinal) && k.Value == read))
+                                {
+                                    string name = k.Key.Substring(17, k.Key.IndexOf(']') - 17);
+                                    if (!hostOwn.Contains(name)) problems.Add($"hit area '{name}' still reads {read}");
+                                }
+                            }
+                            else if (after.Any(k => k.Key.EndsWith("Source", StringComparison.Ordinal) && k.Value == read))
+                                problems.Add($"a duration still reads {read}");
+                        }
+                    if (ArmedBrawlers.GuardsByHost.TryGetValue(host, out var guards))
+                        foreach (var g in c.EntityIdentifiers.Where(i => i != null && guards.Contains(i.name)))
+                            if (g.radius != EntityIdentifier.Radius.SelfWeaponRange && g.radiusMultiplier < EntityBalancingStore.WeaponRange(host)) problems.Add($"guard '{g.name}' not widened");
+                    string assetAfter = string.Join("|", DonorStats.ScanController(prefab.GetComponent<EntityController>(), true).Select(k => k.Key + "=" + k.Value))
+                                      + string.Join("|", prefab.GetComponent<EntityController>().EntityIdentifiers.Select(Sig));
+                    if (assetAfter != assetBefore) problems.Add("the host's prefab asset changed");
+                    if (problems.Count > 0) failures++;
+                    sb.AppendLine($"{(problems.Count == 0 ? "ok  " : "FAIL")} {host} <- {donor}{(map != null ? " rewrites " + string.Join(",", map.Keys) : "")}{(guards != null ? " guards " + string.Join(",", guards) : "")}"
+                        + (problems.Count > 0 ? " | " + string.Join("; ", problems) : ""));
+                }
+                catch (Exception e)
+                {
+                    failures++;
+                    sb.AppendLine($"FAIL {host} <- {donor} threw {(e.InnerException ?? e).GetType().Name}: {(e.InnerException ?? e).Message}");
+                }
+                finally
+                {
+                    prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            sb.Insert(0, $"{pairs} pairs run through the spawn chain, {failures} failed, {clashes} identifier name clashes\n");
+            File.WriteAllText(path, sb.ToString());
         }
 
         // Every mixed pair whose donor attack reads a duration from the unit firing it (a burn's
@@ -109,13 +210,18 @@ namespace RCM_Randomizer
                 foreach (string read in reads)
                 {
                     pairs++;
-                    float want = DonorStats.ValueOf(donor, read, true), has = DonorStats.ValueOf(row.entityId, read, false);
+                    // what the donor's weapon has: its row's own number, or the pre-bake one if the donor
+                    // is a mixed host itself (its row then carries its own donor's)
+                    float want = WeaponRows.TryOriginalStat(donor, read, out float lent) ? lent : DonorStats.ValueOf(donor, read, true);
+                    float has = DonorStats.ValueOf(row.entityId, read, false);
                     bool rewritten = DonorStats.Rewrites.TryGetValue(row.entityId, out var map) && map.TryGetValue(read, out float v) && Math.Abs(v - want) < 0.01f;
                     bool left = DonorStats.Unresolved.Contains(row.entityId + ":" + read);
                     // a radius the floor makes equal: the game reads at least 0.1 for an effect radius
                     bool floorEqual = read.StartsWith("SelfEffectRadius", StringComparison.Ordinal) && Math.Max(has, 0.1f) == Math.Max(want, 0.1f);
                     // a carried splash the unit's own stat roll then scaled (the roll is meant)
-                    bool rolled = read == "SelfEffectRadius1" && want > 0.01f && has > 0f && Math.Abs(has / want - 1f) < 0.3f;
+                    // a carried value the unit's own stat roll then scaled (the roll is meant); a real
+                    // miss is the host's own number, typically 0
+                    bool rolled = want > 0.01f && has > 0f && Math.Abs(has / want - 1f) < 0.3f;
                     bool ok = Math.Abs(has - want) < 0.01f || rewritten || floorEqual || rolled;
                     if (!ok && !left) bad++;
                     sb.AppendLine($"{(ok ? "ok   " : left ? "LEFT " : "WRONG")} {row.entityId} <- {donor}: {read} host now {F(has)}, donor {F(want)}{(rewritten ? " (rewritten in the actions; host keeps its own for its skill)" : left ? " (host's own skill reads it: kept)" : "")}"

@@ -74,11 +74,20 @@ namespace RCM_Randomizer
         // which would credit every event with every identifier.
         static List<KeyValuePair<string, string>> Scan(string entityId, bool firing)
         {
-            var result = new List<KeyValuePair<string, string>>();
             try
             {
                 var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) as UnityEngine.GameObject;
-                var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                return ScanController(prefab != null ? prefab.GetComponent<EntityController>() : null, firing);
+            }
+            catch { return new List<KeyValuePair<string, string>>(); }
+        }
+
+        // the same on a live (or dormant) instance, as the probe's spawn-chain test checks it
+        public static List<KeyValuePair<string, string>> ScanController(EntityController c, bool firing)
+        {
+            var result = new List<KeyValuePair<string, string>>();
+            try
+            {
                 if (c?.events == null) return result;
                 var named = new HashSet<string>();
                 foreach (var ev in c.events)
@@ -89,7 +98,7 @@ namespace RCM_Randomizer
                 }
                 if (c.EntityIdentifiers != null)
                     foreach (var id in c.EntityIdentifiers)
-                        if (id != null && named.Contains(id.name)) result.Add(new KeyValuePair<string, string>("EntityIdentifier.radius", id.radius.ToString()));
+                        if (id != null && named.Contains(id.name)) result.Add(new KeyValuePair<string, string>("EntityIdentifier[" + id.name + "].radius", id.radius.ToString()));
             }
             catch { }
             return result;
