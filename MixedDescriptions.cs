@@ -185,9 +185,9 @@ namespace RCM_Randomizer
                 var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) as UnityEngine.GameObject;
                 var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
                 if (c?.events == null) return found; // unknown: not cached
-                var actions = new List<IEntityAction>();
+                var actions = new List<IEntityAction>(); var live = LiveProjectiles(c);
                 foreach (var ev in c.events)
-                    if (ev != null && Array.IndexOf(Firing, ev.@event) >= 0) Collect(ev, actions, new HashSet<object>(), 0);
+                    if (ev != null && Array.IndexOf(Firing, ev.@event) >= 0) Collect(ev, actions, new HashSet<object>(), 0, live);
                 foreach (var a in actions)
                 {
                     string name = a is AddEntityMod m ? (m.entityMod != null ? m.entityMod.name : "")
@@ -251,9 +251,9 @@ namespace RCM_Randomizer
                 var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) as UnityEngine.GameObject;
                 var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
                 if (c?.events == null) return false; // unknown: not cached
-                var actions = new List<IEntityAction>();
+                var actions = new List<IEntityAction>(); var live = LiveProjectiles(c);
                 foreach (var ev in c.events)
-                    if (ev != null && Array.IndexOf(Firing, ev.@event) >= 0) Collect(ev, actions, new HashSet<object>(), 0);
+                    if (ev != null && Array.IndexOf(Firing, ev.@event) >= 0) Collect(ev, actions, new HashSet<object>(), 0, live);
                 foreach (var a in actions) if (IsGameplayProc(a)) { result = true; break; }
             }
             catch { return false; }
@@ -280,24 +280,55 @@ namespace RCM_Randomizer
         }
 
         // every action reachable from an event, containers (RunSerial, conditional lists) included
-        static void Collect(object o, List<IEntityAction> into, HashSet<object> seen, int depth)
+        // A hit event can serve several projectiles: the hit's PayloadInt is the projectile's index,
+        // and branches pick on it. The PCX Hunter Buggy's normal shot is projectile 0 (damage only);
+        // its SKILL fires projectile 1, and only that branch slows. The swap copies the hit event,
+        // not the skill, so on a host the slow branch is dead - yet it was counted, and a Robo Medic
+        // wearing the Buggy's gun promised "volleys of Slowing missiles" it could never fire
+        // (reported). A branch keyed to a projectile index counts only if the weapon's own firing
+        // events shoot that index; a weapon that shoots no projectile hits as 0.
+        static HashSet<int> LiveProjectiles(EntityController c)
+        {
+            var live = new HashSet<int>();
+            var all = new List<IEntityAction>();
+            foreach (var ev in c.events)
+                if (ev != null && Array.IndexOf(Firing, ev.@event) >= 0) Collect(ev, all, new HashSet<object>(), 0, null);
+            foreach (var a in all) if (a is ShootProjectile shot) live.Add(shot.projectileIndex);
+            if (live.Count == 0) live.Add(0);
+            return live;
+        }
+
+        static bool DeadBranch(ConditionalEntityActions branch, HashSet<int> live)
+        {
+            if (live == null || branch?.eventConditions == null) return false;
+            foreach (var cond in branch.eventConditions)
+                if (cond.type == EventCondition.Type.Int && cond.intSubject == EventCondition.IntSubject.PayloadInt
+                    && cond.operation == EventCondition.Operation.EqualTo && !live.Contains(cond.intValue))
+                    return true;
+            return false;
+        }
+
+        static void Collect(object o, List<IEntityAction> into, HashSet<object> seen, int depth) => Collect(o, into, seen, depth, null);
+
+        static void Collect(object o, List<IEntityAction> into, HashSet<object> seen, int depth, HashSet<int> live)
         {
             if (o == null || depth > 8) return;
             var t = o.GetType();
             if (t.IsPrimitive || t.IsEnum || o is string || o is decimal) return;
             if (o is UnityEngine.Object) return;
+            if (o is ConditionalEntityActions branch && DeadBranch(branch, live)) return;
             if (!t.IsValueType && !seen.Add(o)) return;
             if (o is IEntityAction a) into.Add(a);
             if (o is System.Collections.IEnumerable list)
             {
-                foreach (var item in list) Collect(item, into, seen, depth + 1);
+                foreach (var item in list) Collect(item, into, seen, depth + 1, live);
                 return;
             }
             foreach (var f in t.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
             {
                 object v;
                 try { v = f.GetValue(o); } catch { continue; }
-                Collect(v, into, seen, depth + 1);
+                Collect(v, into, seen, depth + 1, live);
             }
         }
 

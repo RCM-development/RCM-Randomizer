@@ -63,6 +63,114 @@ namespace RCM_Randomizer
             }
             if (names.Count > 0)
                 RCM_GUI.RCMManager.Log("Randomizer: armed brawlers (melee role dropped, gun's reach kept) -> " + string.Join(", ", names));
+
+            // Any mixed unit, not only a rearmed brawler: the reach travels with the donor's gun, so a
+            // host whose "no enemy near" bonus was sized for its own short gun can outrange it too.
+            foreach (var pair in donorMap)
+            {
+                if (string.IsNullOrEmpty(pair.Value)) continue;
+                float reach = 0f;
+                try { reach = EntityBalancingStore.WeaponRange(pair.Value, returnOriginalValueFromBalancingFile: true); } catch { }
+                var guards = ProximityGuards(pair.Key, reach);
+                if (guards.Count == 0) continue;
+                Guards[pair.Key] = guards;
+                RedescribeGuard(pair.Key);
+            }
+            if (Guards.Count > 0)
+                RCM_GUI.RCMManager.Log("Randomizer: out-of-combat bonuses widened to the new gun's reach -> " + string.Join(", ", Guards.Select(g => g.Key + "(" + string.Join("/", g.Value) + ")")));
+        }
+
+        // ---- "while no enemy is near" ----------------------------------------------------------
+        // Some melee units are tough while they close in: the PCX Scythe has 20 Armor and heals
+        // 10 HP/s while no enemy is within 2 cells (an identifier on OneCell x 2, checked by a timer
+        // condition "count = 0"). For a brawler that is "until it reaches its target". Rearmed with
+        // a 4.9-cell gun it shoots from outside that zone and kept armor and regeneration for the
+        // whole fight (reported: "is the 20 armor thing vanilla or from the randomizer?" - the bonus
+        // is vanilla, keeping it in combat was ours). Such guards now reach as far as the gun does.
+        static readonly Dictionary<string, HashSet<string>> Guards = new Dictionary<string, HashSet<string>>();
+
+        // identifiers the prefab's conditions use as "no enemy within a few cells", and (with a reach)
+        // only those the gun outranges
+        static HashSet<string> ProximityGuards(string entityId, float reach = float.MaxValue)
+        {
+            var result = new HashSet<string>();
+            try
+            {
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(entityId)) as UnityEngine.GameObject;
+                var c = prefab != null ? prefab.GetComponent<EntityController>() : null;
+                if (c?.events == null || c.EntityIdentifiers == null) return result;
+                var used = new HashSet<string>();
+                foreach (var ev in c.events)
+                {
+                    if (ev?.conditionalActions == null) continue;
+                    foreach (var ca in ev.conditionalActions)
+                        if (ca?.eventConditions != null)
+                            foreach (var cond in ca.eventConditions)
+                                if (cond.type == EventCondition.Type.EntityIdentifier && cond.entityIdentifierResultCount == 0
+                                    && cond.operation == EventCondition.Operation.EqualTo && !string.IsNullOrEmpty(cond.entityIdentifierName))
+                                    used.Add(cond.entityIdentifierName);
+                }
+                foreach (var id in c.EntityIdentifiers)
+                    if (id != null && used.Contains(id.name) && id.radius == EntityIdentifier.Radius.OneCell && id.radiusMultiplier < reach
+                        && (id.team == Team.Enemy || id.team == Team.EnemyAndNeutral || id.team == Team.AllWithoutNeutral || id.team == Team.All))
+                        result.Add(id.name);
+            }
+            catch { }
+            return result;
+        }
+
+        // On every spawn of a rearmed brawler: its guards reach as far as its weapon (never shorter
+        // than they were). Public for the probe's dormant-instance test.
+        public static int WidenGuards(EntityController entity)
+        {
+            if (entity == null || !Guards.TryGetValue(entity.entityId ?? "", out var names)) return 0;
+            return WidenGuards(entity, names, EntityBalancingStore.WeaponRange(entity.entityId));
+        }
+
+        public static HashSet<string> GuardsOf(string entityId) => ProximityGuards(entityId);
+
+        public static int WidenGuards(EntityController entity, HashSet<string> names, float reach)
+        {
+            if (entity?.EntityIdentifiers == null || names == null) return 0;
+            int widened = 0;
+            foreach (var id in entity.EntityIdentifiers)
+            {
+                if (id == null || !names.Contains(id.name) || id.radius != EntityIdentifier.Radius.OneCell) continue;
+                if (id.radiusMultiplier >= reach) continue;
+                id.radius = EntityIdentifier.Radius.SelfWeaponRange;
+                id.radiusMultiplier = 1f;
+                widened++;
+            }
+            return widened;
+        }
+
+        public static IReadOnlyDictionary<string, HashSet<string>> GuardsByHost => Guards;
+
+        [HarmonyLib.HarmonyPatch(typeof(EntityController), "Init")]
+        static class Patch_Init_Guards
+        {
+            static void Prefix(EntityController __instance)
+            {
+                if (Guards.Count == 0) return;
+                try { WidenGuards(__instance); }
+                catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: brawler guard widening failed (" + e.Message + ")"); }
+            }
+        }
+
+        // the card says what the unit now does: "within 3 cells" became "within its weapon range"
+        static void RedescribeGuard(string host)
+        {
+            try
+            {
+                string key = host.Trim().ToLowerInvariant();
+                if (!Loca.BlueprintDescriptionDictionary.TryGetValue(Loca.DefaultLanguage, out var dict) || !dict.TryGetValue(key, out string current)) return;
+                string rewritten = System.Text.RegularExpressions.Regex.Replace(current, @"within \d+(\.\d+)? cells?", "within its weapon range");
+                if (rewritten == current) return;
+                if (!SavedDescriptions.TryGetValue(Loca.DefaultLanguage, out var saved)) SavedDescriptions[Loca.DefaultLanguage] = saved = new Dictionary<string, string>();
+                if (!saved.ContainsKey(key)) saved[key] = current;
+                dict[key] = rewritten;
+            }
+            catch { }
         }
 
         // The third place a unit is called melee, and the one on the card the player is looking at:
@@ -167,6 +275,7 @@ namespace RCM_Randomizer
             }
             Rows.Clear();
             Converted.Clear();
+            Guards.Clear();
             foreach (var language in SavedNames)
             {
                 if (!Loca.BlueprintNameDictionary.TryGetValue(language.Key, out var dict)) continue;

@@ -84,10 +84,103 @@ namespace RCM_Randomizer
             WritePools(Path.ChangeExtension(path, null) + "Pools.txt", donorOf);
             WriteSkillDamage(Path.ChangeExtension(path, null) + "SkillDamage.txt");
             WritePortraitParts(Path.ChangeExtension(path, null) + "PortraitParts.txt", donorOf);
-            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase", "PCXTunneler", "PCXTunnelExit", "CF3", "CF0.5", "CF5" });
+            WriteEntityDump(Path.ChangeExtension(path, null) + "EntityDump.txt", new[] { "EnergyTransferTurret", "PCXDefectDetector", "PCXSpawnNestSpawner", "PCXCapacityExtender", "PCXWaypointMarker", "PCXBuilderBase", "PCXTunneler", "PCXTunnelExit", "CF3", "CF0.5", "CF5", "PCXScytheHead", "PCXHunterJeep", "RoboMedic", "StunWalker", "RoboMarine", "RoboRocketMarine" });
             WriteKeyBindings(Path.ChangeExtension(path, null) + "Keys.txt");
             WriteSkillCards(Path.ChangeExtension(path, null) + "SkillCards.txt");
             WriteCapturedFixTest(Path.ChangeExtension(path, null) + "CapturedFix.txt");
+            WriteVanillaTexts(Path.ChangeExtension(path, null) + "VanillaTexts.tsv");
+            WriteGuardTest(Path.ChangeExtension(path, null) + "Guards.txt", donorOf);
+        }
+
+        // Melee units with a "while no enemy is near" bonus, and the widening run on a dormant PCX
+        // Scythe as if rearmed with a 4.9-cell gun: its guard must then reach the gun's range, the
+        // prefab asset must not change.
+        static void WriteGuardTest(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            // every unit with a distance-gated condition on its own identifiers: "no enemy within"
+            // (count = 0: a bonus a longer gun keeps in combat) and "enemy within" (count >= 1: a
+            // bonus a longer gun may never reach), with radius, its weapon range and, if mixed, the donor's
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                if (string.IsNullOrEmpty(row.entityId) || row.entityId.StartsWith("rcmgen_", StringComparison.Ordinal)) continue;
+                try
+                {
+                    var p = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(row.entityId)) as UnityEngine.GameObject;
+                    var ec = p != null ? p.GetComponent<EntityController>() : null;
+                    if (ec?.events == null || ec.EntityIdentifiers == null) continue;
+                    var found = new System.Collections.Generic.List<string>();
+                    foreach (var ev in ec.events)
+                    {
+                        if (ev?.conditionalActions == null) continue;
+                        foreach (var ca in ev.conditionalActions)
+                            if (ca?.eventConditions != null)
+                                foreach (var cond in ca.eventConditions)
+                                {
+                                    if (cond.type != EventCondition.Type.EntityIdentifier || string.IsNullOrEmpty(cond.entityIdentifierName)) continue;
+                                    var ident = ec.EntityIdentifiers.FirstOrDefault(i => i != null && i.name == cond.entityIdentifierName);
+                                    if (ident == null || ident.radius != EntityIdentifier.Radius.OneCell || ident.team == Team.Friendly) continue;
+                                    bool none = cond.entityIdentifierResultCount == 0 && cond.operation == EventCondition.Operation.EqualTo;
+                                    found.Add($"{ev.@event}/{ca.name}: {(none ? "NO enemy" : "enemy " + cond.operation + " " + cond.entityIdentifierResultCount)} within {F(ident.radiusMultiplier)} cells ({ident.name}, {ident.team})");
+                                }
+                    }
+                    if (found.Count == 0) continue;
+                    string donor = null; try { donor = donorOf?.Invoke(row.entityId); if (string.IsNullOrEmpty(donor)) donor = null; } catch { }
+                    float own = EntityBalancingStore.WeaponRange(row.entityId, returnOriginalValueFromBalancingFile: true);
+                    sb.AppendLine($"units {row.entityId} range {F(own)}{(donor != null ? $" <- {donor} range {F(EntityBalancingStore.WeaponRange(donor, returnOriginalValueFromBalancingFile: true))}" : "")}"
+                        + $"{(ArmedBrawlers.GuardsByHost.ContainsKey(row.entityId) ? " WIDENED " + string.Join("/", ArmedBrawlers.GuardsByHost[row.entityId]) : "")}");
+                    foreach (string f in found) sb.AppendLine("    " + f);
+                }
+                catch (Exception e) { sb.AppendLine(row.entityId + " FAILED " + e.Message); }
+            }
+            try
+            {
+                const string id = "PCXScytheHead";
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
+                var guards = ArmedBrawlers.GuardsOf(id);
+                string Describe(EntityController ec) => string.Join(", ", ec.EntityIdentifiers.Where(i => guards.Contains(i.name)).Select(i => $"{i.name}={i.radius}x{F(i.radiusMultiplier)}"));
+                string assetBefore = Describe(prefab.GetComponent<EntityController>());
+                bool was = prefab.activeSelf;
+                prefab.SetActive(false);
+                UnityEngine.GameObject dormant = null;
+                try
+                {
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    var c = dormant.GetComponent<EntityController>();
+                    int n = ArmedBrawlers.WidenGuards(c, guards, 4.9f);
+                    string after = Describe(c);
+                    bool asset = assetBefore == Describe(prefab.GetComponent<EntityController>());
+                    bool ok = guards.Count > 0 && n == guards.Count && asset && after.Contains("SelfWeaponRange");
+                    sb.AppendLine($"{(ok ? "ok" : "FAILED")} {id} as a 4.9-cell gunner: {n} guards widened, asset untouched={asset} | before {assetBefore} | after {after}");
+                }
+                finally
+                {
+                    prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            catch (Exception e) { sb.AppendLine("FAILED guard test " + e.Message); }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // Every entity's stock name and card text (English), for answering "is that vanilla?" about
+        // units on other players' seeds: id, vanilla name, vanilla description, skill text.
+        static void WriteVanillaTexts(string path)
+        {
+            var sb = new StringBuilder("id\tname\tdescription\tskill\n");
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string id = row.entityId;
+                if (string.IsNullOrEmpty(id) || id.StartsWith("rcmgen_", StringComparison.Ordinal)) continue;
+                string name = MixedUnitPresentation.VanillaName(Loca.DefaultLanguage, id) ?? "";
+                string text = MixedDescriptions.OriginalText(id);
+                if (string.IsNullOrEmpty(text)) { try { text = Loca.BlueprintDescription(id); } catch { text = ""; } }
+                string skill = "";
+                try { skill = Loca.SkillDescription(id); } catch { }
+                sb.Append(id).Append('\t').Append(name).Append('\t').Append(text.Replace("\n", " / ").Replace("\t", " "))
+                  .Append('\t').Append((skill ?? "").Replace("\n", " / ").Replace("\t", " ")).Append('\n');
+            }
+            File.WriteAllText(path, sb.ToString());
         }
 
         // The captured Tunneler rewire, run on dormant instances: the skill's spawn must leave the

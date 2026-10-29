@@ -1,6 +1,11 @@
 # Changelog
 
 
+## Unreleased
+
+- **Mixed cards no longer promise their donor's skill effects** (reported: a Robo Hunter Medic said "Can shoot volleys of Slowing missiles", but it couldn't). Several units' hit events serve two projectiles, the normal shot and the skill's, and pick a branch by projectile index. The PCX Hunter Buggy slows only with its skill missile. The swap copies the hit event, not the skill, so the slow branch is dead on the host, yet it was counted for the card text and the price. A branch tied to a projectile now counts only if the weapon's own shots fire that projectile. This also affected the Stun Walker (its stun is skill-only), the Robo Marine (Marked) and the Robo Rocket Marine. On the test seed the Hunter Exciter Cruiser loses the false slow line, and three units get cheaper (Stun Blockade Tank 182 to 165, Armed Stun Buckler Mech 781 to 711, Hunter Exciter Cruiser 284 to 268).
+- **A melee unit with a gun no longer keeps its "while no enemy is near" bonus in combat** (reported on an Armed PCX Shielder Scythe: 20 armor). The bonus is vanilla: the PCX Scythe has 20 Armor and heals 10 HP/s while no enemy is within 2 cells, which for a brawler means "until it reaches its target". With a 4.9-cell gun it shot from outside that zone and kept both for the whole fight. On any mixed unit, such a bonus now reaches as far as the new gun when the gun outranges it, and the card says "within its weapon range". Checked across all units: only the PCX Scythe (2 cells) and the Mantis Mech (6 cells) have such a bonus. Tested on a dormant Scythe. New audit check.
+
 ## 0.10.0 — 2026-10-25
 
 - **The PCX Tunneler can be captured, and it works.** Its skill digs a tunnel exit that brings up CF tanks. For the AI it digs next to damaged front-line units anywhere on the map, so captured it dug nothing (traced by epic400). The captured Tunneler now digs where you click, and the exit and its CF 0.5 / CF3 / CF5 tanks are player copies, so your hacks reach them and enemy rolls don't. Checked at the menu: the rewire runs on dormant instances and leaves the prefab assets untouched. New setting `Diagnostics.CapturedTechForce` makes the first captured pick a given building, for testing.
