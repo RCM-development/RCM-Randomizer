@@ -90,6 +90,101 @@ namespace RCM_Randomizer
             WriteCapturedFixTest(Path.ChangeExtension(path, null) + "CapturedFix.txt");
             WriteVanillaTexts(Path.ChangeExtension(path, null) + "VanillaTexts.tsv");
             WriteGuardTest(Path.ChangeExtension(path, null) + "Guards.txt", donorOf);
+            WriteDurationTest(Path.ChangeExtension(path, null) + "Durations.txt", donorOf);
+        }
+
+        // Every mixed pair whose donor attack reads a duration from the unit firing it (a burn's
+        // length): the host must now carry the donor's value, or have the rewrite registered. Plus the
+        // rewrite itself on a dormant donor instance (Flame Turret), prefab asset untouched.
+        static void WriteDurationTest(string path, Func<string, string> donorOf)
+        {
+            var sb = new StringBuilder();
+            int pairs = 0, bad = 0;
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string donor = null; try { donor = donorOf?.Invoke(row.entityId); } catch { }
+                if (string.IsNullOrEmpty(donor)) continue;
+                var reads = DonorStats.ReadsOf(donor, firing: true);
+                if (reads.Count == 0) continue;
+                foreach (string read in reads)
+                {
+                    pairs++;
+                    float want = DonorStats.ValueOf(donor, read, true), has = DonorStats.ValueOf(row.entityId, read, false);
+                    bool rewritten = DonorStats.Rewrites.TryGetValue(row.entityId, out var map) && map.TryGetValue(read, out float v) && Math.Abs(v - want) < 0.01f;
+                    bool left = DonorStats.Unresolved.Contains(row.entityId + ":" + read);
+                    // a radius the floor makes equal: the game reads at least 0.1 for an effect radius
+                    bool floorEqual = read.StartsWith("SelfEffectRadius", StringComparison.Ordinal) && Math.Max(has, 0.1f) == Math.Max(want, 0.1f);
+                    // a carried splash the unit's own stat roll then scaled (the roll is meant)
+                    bool rolled = read == "SelfEffectRadius1" && want > 0.01f && has > 0f && Math.Abs(has / want - 1f) < 0.3f;
+                    bool ok = Math.Abs(has - want) < 0.01f || rewritten || floorEqual || rolled;
+                    if (!ok && !left) bad++;
+                    sb.AppendLine($"{(ok ? "ok   " : left ? "LEFT " : "WRONG")} {row.entityId} <- {donor}: {read} host now {F(has)}, donor {F(want)}{(rewritten ? " (rewritten in the actions; host keeps its own for its skill)" : left ? " (host's own skill reads it: kept)" : "")}"
+                        + $" | text: {Loca.BlueprintDescription(row.entityId).Replace("\n", " / ")}");
+                }
+            }
+            try
+            {
+                const string id = "FlameTurret";
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
+                bool was = prefab.activeSelf;
+                prefab.SetActive(false);
+                UnityEngine.GameObject dormant = null;
+                try
+                {
+                    int assetBefore = DonorStats.ReadsOf(id, firing: true).Count;
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    var c = dormant.GetComponent<EntityController>();
+                    int n = DonorStats.Apply(c, new System.Collections.Generic.Dictionary<string, float> { ["SelfDuration1"] = 3f, ["SelfSpawnTtl"] = 7f });
+                    int assetAfter = DonorStats.ReadsOf(id, firing: true).Count;
+                    bool ok = n > 0 && assetBefore == assetAfter && assetBefore > 0;
+                    sb.AppendLine($"{(ok ? "ok" : "FAILED")} rewrite test on {id}: {n} duration reads turned into the donor's number, asset still reads {assetAfter} (was {assetBefore})");
+                }
+                finally
+                {
+                    prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            catch (Exception e) { sb.AppendLine("FAILED rewrite test " + e.Message); }
+            // the hit-area rewrite: the Incinerator's hit identifiers sized by its effect radius become
+            // fixed at the donor's radius; identifiers its own other events name stay
+            try
+            {
+                const string id = "Incinerator";
+                var prefab = UnityEngine.Resources.Load(EntityBalancingStore.PrefabLocation(id)) as UnityEngine.GameObject;
+                var reading = DonorStats.FiringIdentifiersReading(id, "SelfEffectRadius1");
+                reading.UnionWith(DonorStats.FiringIdentifiersReading(id, "SelfEffectRadius2"));
+                bool was = prefab.activeSelf;
+                prefab.SetActive(false);
+                UnityEngine.GameObject dormant = null;
+                try
+                {
+                    dormant = UnityEngine.Object.Instantiate(prefab, new UnityEngine.Vector3(0f, -10000f, 0f), UnityEngine.Quaternion.identity);
+                    var c = dormant.GetComponent<EntityController>();
+                    int n = DonorStats.Apply(c, new System.Collections.Generic.Dictionary<string, float> { ["SelfEffectRadius1"] = 0f, ["SelfEffectRadius2"] = 0.4f });
+                    string after = string.Join(", ", c.EntityIdentifiers.Where(i => reading.Contains(i.name)).Select(i => $"{i.name}={i.radius}x{F(i.radiusMultiplier)}"));
+                    string asset = string.Join(", ", prefab.GetComponent<EntityController>().EntityIdentifiers.Where(i => reading.Contains(i.name)).Select(i => $"{i.name}={i.radius}x{F(i.radiusMultiplier)}"));
+                    bool ok = reading.Count > 0 && n >= reading.Count && !after.Contains("SelfEffectRadius") && asset.Contains("SelfEffectRadius");
+                    sb.AppendLine($"{(ok ? "ok" : "FAILED")} hit-area test on {id}: {n} rewritten | asset {asset} | instance {after}");
+                }
+                finally
+                {
+                    prefab.SetActive(was);
+                    if (dormant != null) UnityEngine.Object.DestroyImmediate(dormant);
+                }
+            }
+            catch (Exception e) { sb.AppendLine("FAILED hit-area test " + e.Message); }
+            // every other value a donor's attack reads from the unit firing it, over all mixed pairs
+            var other = new System.Collections.Generic.Dictionary<string, int>();
+            foreach (var row in EntityBalancingStore.EntityBalancingParametersList)
+            {
+                string donor = null; try { donor = donorOf?.Invoke(row.entityId); } catch { }
+                if (string.IsNullOrEmpty(donor)) continue;
+                foreach (string read in DonorStats.AllSelfReads(donor)) other[read] = other.TryGetValue(read, out int n) ? n + 1 : 1;
+            }
+            foreach (var entry in other.OrderByDescending(e => e.Value)) sb.AppendLine($"self-read {entry.Key} in {entry.Value} pairs");
+            sb.Insert(0, $"{pairs} donor duration reads on mixed units, {bad} wrong\n");
+            File.WriteAllText(path, sb.ToString());
         }
 
         // Melee units with a "while no enemy is near" bonus, and the widening run on a dormant PCX

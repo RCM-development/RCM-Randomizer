@@ -64,7 +64,7 @@ namespace RCM_Randomizer
                     string hostKey = pair.Key.Trim().ToLowerInvariant(), donorKey = pair.Value.Trim().ToLowerInvariant();
                     if (!dict.TryGetValue(hostKey, out string hostText)) hostText = "";
                     dict.TryGetValue(donorKey, out string donorText);
-                    string rewritten = Rewrite(hostText, donorText, HasGameplayProc(pair.Key), ProcEffects(pair.Value));
+                    string rewritten = Rewrite(hostText, donorText, HasGameplayProc(pair.Key), ProcEffects(pair.Value), DonorLiterals(pair.Key, pair.Value));
                     if (rewritten == hostText) continue;
                     saved[hostKey] = hostText;
                     dict[hostKey] = rewritten;
@@ -99,13 +99,39 @@ namespace RCM_Randomizer
         // donorEffects: the effects the donor's firing events actually carry (see ProcEffects). A donor
         // sentence comes along only when it names one of them - "Doubles attack speed and applies
         // Burning" rides in on the burning mod; an effect sentence with no proc behind it does not.
-        public static string Rewrite(string hostText, string donorText, bool hostHadProc, HashSet<string> donorEffects)
+        // A donor sentence's duration tokens resolve on the HOST's row. Where the host keeps its own
+        // duration for its skill (DonorStats rewrites the copied actions instead), the token would show
+        // the host's number for the donor's effect: the sentence gets the donor's number written in.
+        static Dictionary<string, string> DonorLiterals(string hostId, string donorId)
+        {
+            var literals = new Dictionary<string, string>();
+            try
+            {
+                var hostOwn = DonorStats.ReadsOf(hostId, firing: false);
+                foreach (string read in DonorStats.ReadsOf(donorId, firing: true))
+                {
+                    // durations only: the radii have no token of their own in these sentences
+                    string token = read == "SelfDuration1" ? "$Duration1$" : read == "SelfSpawnTtl" ? "$Duration2$" : null;
+                    if (token != null && hostOwn.Contains(read))
+                        literals[token] = DonorStats.ValueOf(donorId, read, true).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+            catch { }
+            return literals;
+        }
+
+        public static string Rewrite(string hostText, string donorText, bool hostHadProc, HashSet<string> donorEffects, Dictionary<string, string> donorLiterals = null)
         {
             var drop = new HashSet<string>(DroppedSentences(hostText, hostHadProc));
             var add = new List<string>();
             if (donorEffects != null && donorEffects.Count > 0)
                 foreach (var s in Sentences(donorText))
-                    if (Classify(s) == Kind.Effect && EffectWords(s).Any(donorEffects.Contains)) add.Add(PlayerSide(s));
+                    if (Classify(s) == Kind.Effect && EffectWords(s).Any(donorEffects.Contains))
+                    {
+                        string sentence = PlayerSide(s);
+                        if (donorLiterals != null) foreach (var lit in donorLiterals) sentence = sentence.Replace(lit.Key, lit.Value);
+                        add.Add(sentence);
+                    }
             if (drop.Count == 0 && add.Count == 0) return hostText;
             var lines = new List<string>();
             foreach (var line in (hostText ?? "").Split('\n'))

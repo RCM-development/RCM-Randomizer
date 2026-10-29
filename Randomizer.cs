@@ -1136,11 +1136,13 @@ namespace RCM_Randomizer
 
         void ApplyWeaponPricing()
         {
+            DonorStats.Clear();
             if (_donorMap == null || _donorMap.Count == 0 || !_weaponPricing.Value) return;
 
             var overrides = ParseWeaponPriceOverrides();
             var changes = new List<CardChangeScriptableObject>();
             var bakes = new List<(string id, float damage, float cooldown, float range, float gain)>();
+            var durations = new List<string>();
             foreach (var pair in _donorMap)
             {
                 float costMult;
@@ -1233,6 +1235,33 @@ namespace RCM_Randomizer
                     bakes.Add((pair.Key, damageRatio, cooldownRatio, rangeRatio, rangeGain));
                 if (Mathf.Abs(splashDelta) > 0.01f)
                     changes.Add(AddChange(EntityBalancingStore.ChangeableValue.EffectRadius1, splashDelta, pair.Key));
+                // and the DURATIONS its actions read from the unit firing them (a burn's length):
+                // the host takes the donor's, or, where its own skill needs its own, the copied
+                // actions get the donor's number written in (DonorStats)
+                try
+                {
+                    var donorReads = DonorStats.ReadsOf(pair.Value, firing: true);
+                    if (donorReads.Count > 0)
+                    {
+                        var hostElsewhere = DonorStats.ReadsOf(pair.Key, firing: false);
+                        foreach (string read in donorReads)
+                        {
+                            float hostValue = DonorStats.ValueOf(pair.Key, read, true), donorValue = DonorStats.ValueOf(pair.Value, read, true);
+                            if (Mathf.Abs(donorValue - hostValue) < 0.01f) continue;
+                            // a donor WITH a splash: carried above (splashDelta)
+                            if (read == "SelfEffectRadius1" && donorValue > 0.01f) continue;
+                            bool radius = read.StartsWith("SelfEffectRadius", StringComparison.Ordinal);
+                            string how;
+                            if (!hostElsewhere.Contains(read)) { changes.Add(AddChange(DonorStats.StatOf(read), donorValue - hostValue, pair.Key)); how = ""; }
+                            else if (!radius) { DonorStats.RewriteOnSpawn(pair.Key, read, donorValue); how = " (actions)"; }
+                            else if (!DonorStats.FiringIdentifiersReading(pair.Value, read).Overlaps(DonorStats.HostIdentifiers(pair.Key)))
+                            { DonorStats.RewriteOnSpawn(pair.Key, read, donorValue); how = " (hit area)"; }
+                            else { DonorStats.Unresolved.Add(pair.Key + ":" + read); how = " (shared hit area: left)"; }
+                            durations.Add($"{pair.Key}:{read} {hostValue:0.#}->{donorValue:0.#}{how}");
+                        }
+                    }
+                }
+                catch { }
                 if (Mathf.Abs(costMult - 1f) < 0.02f) continue;
 
                 changes.Add(MultiplyChange(EntityBalancingStore.ChangeableValue.Cost, costMult, pair.Key));
@@ -1240,6 +1269,7 @@ namespace RCM_Randomizer
             }
             foreach (var bake in bakes)
                 WeaponRows.Bake(bake.id, bake.damage, bake.cooldown, bake.range, bake.gain);
+            if (durations.Count > 0) RCMManager.Log("Randomizer: donor durations carried -> " + string.Join(", ", durations));
             if (changes.Count == 0) return;
 
             SetLocaText(WeaponPricingLocaKey, "Weapon swap");

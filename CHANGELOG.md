@@ -1,6 +1,10 @@
 # Changelog
 
 
+## Unreleased
+
+- **A swapped weapon's effects last as long as they did on the donor** (reported: "weapon-switched units that have a fire attack cause burn for zero seconds", a Flame Charge Tank's card read "Burning for 0 sec"). A transplanted weapon runs with its new unit as the source, so every number it reads "from itself" is the host's. Damage, cooldown, reach and splash were carried; the durations were not. A burn, slow or fire patch lasted the host's Duration (usually 0) instead of the donor's. Now each mixed unit takes its donor's durations. Where the host's own skill needs its own value, the copied attack gets the donor's number written in, and so does the card. The same applies to hit areas sized by effect radius 2, and by effect radius 1 when the donor has no splash: a single-target gun on a unit with its own splash skill used to hit an area as large as that skill (Mantis Mech 1.8 cells, PCX Crystal Cleaner 3). On the test seed, 96 such values on mixed units are checked and all are now the donor's; many were 0 before (Charge Laser Tank slow, Juggernaut burn, Chain Lightning Turret fire patch). New audit check, plus tests of both rewrites on dormant instances.
+
 ## 0.10.1 — 2026-10-29
 
 - **Mixed cards no longer promise their donor's skill effects** (reported: a Robo Hunter Medic said "Can shoot volleys of Slowing missiles", but it couldn't). Several units' hit events serve two projectiles, the normal shot and the skill's, and pick a branch by projectile index. The PCX Hunter Buggy slows only with its skill missile. The swap copies the hit event, not the skill, so the slow branch is dead on the host, yet it was counted for the card text and the price. A branch tied to a projectile now counts only if the weapon's own shots fire that projectile. This also affected the Stun Walker (its stun is skill-only), the Robo Marine (Marked) and the Robo Rocket Marine. On the test seed the Hunter Exciter Cruiser loses the false slow line, and three units get cheaper (Stun Blockade Tank 182 to 165, Armed Stun Buckler Mech 781 to 711, Hunter Exciter Cruiser 284 to 268).
