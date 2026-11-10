@@ -29,7 +29,7 @@ namespace RCM_Randomizer
         const string IDENTIFIER = "RCM.plugins.randomizer";
         const string SeedFileName = "randomizerSeed.txt";
         // keep in step with <Version> in RCM_Randomizer.csproj (BepInPlugin needs a constant)
-        public const string Version = "0.10.2";
+        public const string Version = "0.10.3";
 
         public enum Mode { Off, PerSave, PerRun }
 
@@ -211,7 +211,7 @@ namespace RCM_Randomizer
             _enemyAiPatrolsDefend = Config.Bind("EnemyAI", "PatrolsDefend", true, "Patrolling groups answer defence calls.");
             _enemyAiDormant = Config.Bind("EnemyAI", "DormantRules", true, "Enable the three switched-off rules.");
             _economyBuildings = Config.Bind("Economy", "Buildings", true,
-                "Six generated economy buildings on the unlock track (Dust Siphon L4, Toll Gate L12, Tithe Altar L20, Bounty Beacon L30, Leech Spire L38, Scrap Furnace L46): area harvesting, tolls on passing enemies, health for crystals, bounties, a draining spire and a refund furnace. Appended cards - removing the mod breaks a save that owns one.");
+                "Six generated economy buildings on the unlock track (Dust Siphon L4, Crystal Vault L12, Tithe Altar L20, Bounty Office L30, Leech Spire L38, Scrap Furnace L46): area harvesting, interest on banked crystals, health for crystals, map-wide bounties, a draining spire and a refund furnace. Appended cards - removing the mod breaks a save that owns one.");
             _engineerVeterancy = Config.Bind("Engineers", "Veterancy", true,
                 "The engineer has a career over the run: it earns rank credits from every building it places (and from kills), ranks cost more than for other units, pay double the veterancy bonus, and every new rank grants one random hack (bronze Common, silver Rare, gold UltraRare). Rank and hacks carry from battle to battle within a run and show above the engineer while it is selected. Needs Progression.VeterancyChevrons.");
             _engineerRankCostFactor = Config.Bind("Engineers", "CareerRankCostFactor", 4f,
@@ -224,6 +224,9 @@ namespace RCM_Randomizer
                 new ConfigDescription("Number of enemy defense buildings unlocked as (Rare+) player blueprints per seed. 0 disables.", new AcceptableValueRange<int>(0, 6)));
             _seedOverride = Config.Bind("Diagnostics", "SeedOverride", "",
                 "Testing: a seed number to roll with instead of the profile's (the seed file is left alone). Empty: the profile's seed.");
+            var economySelfTest = Config.Bind("Diagnostics", "EconomySelfTest", false,
+                "Testing: in the next level that loads, spawn each generated economy building with test units next to the player, check what every one of them pays and log PASS/FAIL to RandomizerEconomyTest.txt in the BepInEx folder. Spawns enemies and kills units: test runs only.");
+            if (economySelfTest.Value) StartCoroutine(EconomySelfTest.Run());
             _capturedTechForce = Config.Bind("Diagnostics", "CapturedTechForce", "",
                 "Testing: an enemy building id (e.g. PCXTunneler) that the first captured pick always takes, if it is in the pool and the ladder allows captured tech at all. Empty: drawn by the seed.");
             _veterancyChevrons = Config.Bind("Progression", "VeterancyChevrons", true,

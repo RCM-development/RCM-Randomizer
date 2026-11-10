@@ -28,37 +28,43 @@ namespace RCM_Randomizer
         class Spec
         {
             public string Id, Name, Description;
-            public int Level, Cost;
+            public int Level, Cost, Health;
+            public float Armor;
             public float Scale;          // world model
             public Color Tint;
             public Func<IEntityAction> Tick;
         }
 
-        // Ordered by value. A cheap trade first, income that needs placement next, then income that
-        // needs fighting, then the pieces that pay back whole armies.
+        // Ordered by level. Playtest feedback on the first set: everything that needed enemies next to
+        // it died, because it was a Crystal Dust Catcher underneath (73 health), priced at two to three
+        // vanilla economy buildings. So each one now either works from inside the base, or is built to
+        // be shot at; every one has its own health and armor, and the prices sit near the vanilla
+        // economy buildings (300) instead of above them.
         static readonly Spec[] Specs =
         {
             // Playtested as far too strong for a level 4 card: a field of crystals is many cells, and
-            // it collected all of them at once for the price of a single Dust Catcher. Twice the price
-            // and a slower draw per cell.
-            new Spec { Id = "siphon", Name = "Dust Siphon", Level = 4, Cost = 700, Scale = 0.9f, Tint = new Color(0.75f, 0.95f, 1f),
+            // it collected all of them at once for the price of a single Dust Catcher.
+            new Spec { Id = "siphon", Name = "Dust Siphon", Level = 4, Cost = 700, Health = 180, Armor = 1, Scale = 0.9f, Tint = new Color(0.75f, 0.95f, 1f),
                 Description = "Draws crystal dust from every crystal within 3 cells: 0.5 crystals per second per crystal cell, without a harvester. Worth nothing away from a field.",
                 Tick = () => new AreaHarvest { Radius = 3, PerCell = 0.5f } },
-            new Spec { Id = "toll", Name = "Toll Gate", Level = 12, Cost = 400, Scale = 1.05f, Tint = new Color(1f, 0.9f, 0.6f),
-                Description = "Every enemy unit within 6 cells pays a toll of 1 crystal per second (at most 8 per second). Put it where they walk.",
-                Tick = () => new Toll { Radius = 6, PerUnit = 1f, Cap = 8f } },
-            new Spec { Id = "tithe", Name = "Tithe Altar", Level = 20, Cost = 450, Scale = 1f, Tint = new Color(0.85f, 0.7f, 1f),
-                Description = "Takes 1 percent of max health per second from your own units within 4 cells and pays 0.08 crystals per point of health. Income at the cost of the units standing near it.",
-                Tick = () => new Tithe { Radius = 4, HealthShare = 0.01f, PerHealth = 0.08f } },
-            new Spec { Id = "bounty", Name = "Bounty Beacon", Level = 30, Cost = 600, Scale = 1.15f, Tint = new Color(1f, 0.8f, 0.35f),
-                Description = "Marks every enemy within 10 cells with a bounty: 20 percent of its cost in crystals when it dies, wherever it dies within 6 seconds of leaving.",
-                Tick = () => new DeathPay { Radius = 10, Enemy = true, Share = 0.20f, Seconds = 6f, ModName = "rcmmod_eco_bounty" } },
-            new Spec { Id = "leech", Name = "Leech Spire", Level = 38, Cost = 800, Scale = 1.2f, Tint = new Color(0.6f, 1f, 0.6f),
-                Description = "Drains 4 health per second from every enemy within 4 cells and turns it into crystals at 0.5 per point. A weapon that pays.",
-                Tick = () => new Leech { Radius = 4, Damage = 4f, PerDamage = 0.5f } },
-            new Spec { Id = "furnace", Name = "Scrap Furnace", Level = 46, Cost = 900, Scale = 1.3f, Tint = new Color(1f, 0.55f, 0.35f),
-                Description = "Recovers 35 percent of the cost of every one of your units destroyed within 8 cells, and 10 percent of every enemy destroyed there. The place to make a stand.",
-                Tick = () => new DeathPay { Radius = 8, Enemy = false, Share = 0.35f, EnemyShare = 0.10f, Seconds = 4f, ModName = "rcmmod_eco_furnace" } },
+            // was the Toll Gate (enemies within 6 cells paid a toll): only paid while it was being killed.
+            // The id stays so a save that owns the card still resolves it.
+            new Spec { Id = "toll", Name = "Crystal Vault", Level = 12, Cost = 350, Health = 260, Armor = 1, Scale = 1.05f, Tint = new Color(1f, 0.9f, 0.6f),
+                Description = "Pays interest on the crystals you keep: 1 crystal per second for every 200 in your bank, up to 5 per second. Saving up pays.",
+                Tick = () => new Interest { Per = 200f, Cap = 5f } },
+            new Spec { Id = "tithe", Name = "Tithe Altar", Level = 20, Cost = 350, Health = 240, Armor = 1, Scale = 1f, Tint = new Color(0.85f, 0.7f, 1f),
+                Description = "Takes 2 percent of max health per second from your units within 5 cells, never below half, and pays 0.12 crystals per point. Next to a healer it never stops paying.",
+                Tick = () => new Tithe { Radius = 5, HealthShare = 0.02f, Floor = 0.5f, PerHealth = 0.12f } },
+            // was a beacon that marked enemies within 10 cells - so it had to stand at the front
+            new Spec { Id = "bounty", Name = "Bounty Office", Level = 30, Cost = 500, Health = 280, Armor = 1, Scale = 1.15f, Tint = new Color(1f, 0.8f, 0.35f),
+                Description = "Pays 10 percent of the cost of every enemy unit destroyed anywhere on the map, for as long as it stands. Each office pays on its own.",
+                Tick = () => new Bounty { Share = 0.10f, ModName = "rcmmod_eco_bounty" } },
+            new Spec { Id = "leech", Name = "Leech Spire", Level = 38, Cost = 600, Health = 650, Armor = 2, Scale = 1.2f, Tint = new Color(0.6f, 1f, 0.6f),
+                Description = "Drains 2 percent of max health per second (3 to 15) from every enemy within 5 cells, heals itself by half of it and pays 0.3 crystals per point. Built to be shot at.",
+                Tick = () => new Leech { Radius = 5, Share = 0.02f, Min = 3f, Max = 15f, SelfHeal = 0.5f, PerDamage = 0.3f } },
+            new Spec { Id = "furnace", Name = "Scrap Furnace", Level = 46, Cost = 650, Health = 500, Armor = 2, Scale = 1.3f, Tint = new Color(1f, 0.55f, 0.35f),
+                Description = "Recovers 35 percent of the cost of every one of your units destroyed within 12 cells, and 15 percent of every enemy destroyed there. Furnaces do not add up.",
+                Tick = () => new DeathPay { Radius = 12, Enemy = false, Share = 0.35f, EnemyShare = 0.15f, Seconds = 4f, ModName = "rcmmod_eco_furnace" } },
         };
 
         const string TemplateId = "CrystalDustCatcher";
@@ -94,7 +100,10 @@ namespace RCM_Randomizer
                 // here was therefore a full Dust Catcher - +2 crystals a second - with its own mechanic on
                 // top. Zeroed, so the building earns exactly what its description says.
                 row.maxArmor = 0f;
-                row.maxHealth = (int)(row.maxHealth * (1f + spec.Level / 60f));
+                // the template's own 73 health is a Dust Catcher's, a building that sits behind the
+                // harvesters. Vanilla Reclaimer 315, Harvest Tuner 208.
+                row.maxHealth = spec.Health;
+                row.armorProtection = spec.Armor;
                 row.cardModelScalingFactor *= spec.Scale;
                 // The template IS a refinery - the Dust Catcher is one of the economies picked at run
                 // setup - and its roles made each of these one too: PlaceBuildings lets a Refinery be
@@ -110,7 +119,7 @@ namespace RCM_Randomizer
                 Write(row);
                 SpecOf[id] = spec;
                 SetLoca(id, spec.Name, spec.Description);
-                names.Add($"{spec.Name} (L{spec.Level}, {spec.Cost}c)");
+                names.Add($"{spec.Name} (L{spec.Level}, {spec.Cost}c, {spec.Health}hp)");
             }
             RCM_GUI.RCMManager.Log("Randomizer: economy buildings -> " + string.Join(", ", names));
         }
@@ -231,6 +240,49 @@ namespace RCM_Randomizer
             }
         }
 
+        // ---- what they earn, for the log ----------------------------------------------------------
+        // One line a minute while any of them pays: playtests are checked against this.
+        static readonly Dictionary<string, float> Earned = new Dictionary<string, float>();
+        // never cleared: the self-test reads differences
+        public static readonly Dictionary<string, float> Totals = new Dictionary<string, float>();
+        public static float Total(string what) => Totals.TryGetValue(what, out float v) ? v : 0f;
+
+        public static bool TryGetSpec(string entityId, out string name, out int health, out float armor)
+        {
+            name = null; health = 0; armor = 0f;
+            if (!SpecOf.TryGetValue(entityId, out var spec)) return false;
+            name = spec.Name; health = spec.Health; armor = spec.Armor;
+            return true;
+        }
+        static float _nextLog;
+
+        static string NameOf(EntityController self) => SpecOf.TryGetValue(self.EntityId, out var spec) ? spec.Name : self.EntityId;
+
+        static void Pay(string tag, float amount, string what)
+        {
+            Bank.Deposit(tag, amount);
+            Note(what, amount);
+        }
+
+        static void Note(string what, float amount)
+        {
+            if (amount <= 0f) return;
+            Earned.TryGetValue(what, out float sum);
+            Earned[what] = sum + amount;
+            Totals.TryGetValue(what, out float total);
+            Totals[what] = total + amount;
+        }
+
+        static void FlushLog()
+        {
+            if (Time.time < _nextLog) return;
+            if (_nextLog > 0f && Earned.Count > 0)
+                RCM_GUI.RCMManager.Log("Randomizer: economy buildings paid in the last minute -> "
+                    + string.Join(", ", Earned.OrderBy(e => e.Key).Select(e => e.Key + " " + e.Value.ToString("0.0"))));
+            Earned.Clear();
+            _nextLog = Time.time + 60f;
+        }
+
         // ---- the behaviours ------------------------------------------------------------------------
         // Plain IEntityAction implementations: the game calls Run once per event, and each of these
         // does its whole second's work there. None of them uses Update.
@@ -250,6 +302,7 @@ namespace RCM_Randomizer
                     var self = payload.Self;
                     long t = ModCost.Start();
                     if (self != null && self.StillExists && (RunsWhileDying || !self.DestroyHasBeenStarted)) Second(self);
+                    FlushLog();
                     ModCost.Stop(ModCost.Slot.Economy, t);
                 }
                 catch (Exception e) { RCM_GUI.RCMManager.Log("Randomizer: " + ActionName + " failed (" + e.Message + ")"); }
@@ -287,59 +340,96 @@ namespace RCM_Randomizer
                     if (!grid.IsCrystalOnCell(position)) continue;
                     gained += grid.RemoveCrystals(position, PerCell);
                 }
-                if (gained > 0f) Bank.Deposit(self.tag, gained);
+                if (gained > 0f) Pay(self.tag, gained, NameOf(self));
             }
         }
 
-        class Toll : Tick
+        // Interest on the owner's bank. Nothing to stand next to: it pays for NOT spending.
+        class Interest : Tick
         {
-            public int Radius; public float PerUnit, Cap;
-            public override IEntityAction Clone => new Toll { Radius = Radius, PerUnit = PerUnit, Cap = Cap };
+            public float Per, Cap;
+            public override IEntityAction Clone => new Interest { Per = Per, Cap = Cap };
             protected override void Second(EntityController self)
             {
-                int count = Within(Enemies(self), self, Radius).Count(e => !e.IsBuilding);
-                if (count > 0) Bank.Deposit(self.tag, Mathf.Min(Cap, count * PerUnit));
+                if (!Bank.AccountExists(self.tag)) return;
+                float pay = Mathf.Min(Cap, Bank.ActualBalance(self.tag) / Per);
+                if (pay > 0.01f) Pay(self.tag, pay, NameOf(self));
             }
         }
 
+        // Health for crystals from the owner's own units, down to Floor of their max health and no
+        // further: alone it pays once per unit, next to a healer it pays for as long as the healing lasts.
         class Tithe : Tick
         {
-            public int Radius; public float HealthShare, PerHealth;
-            public override IEntityAction Clone => new Tithe { Radius = Radius, HealthShare = HealthShare, PerHealth = PerHealth };
+            public int Radius; public float HealthShare, Floor, PerHealth;
+            public override IEntityAction Clone => new Tithe { Radius = Radius, HealthShare = HealthShare, Floor = Floor, PerHealth = PerHealth };
             protected override void Second(EntityController self)
             {
                 float taken = 0f;
-                foreach (var unit in Within(Friends(self), self, Radius).Where(e => !e.IsBuilding && e.CurrentHealth > 1f).ToList())
+                foreach (var unit in Within(Friends(self), self, Radius).Where(e => !e.IsBuilding).ToList())
                 {
-                    float amount = Mathf.Min(unit.MaxHealth * HealthShare, unit.CurrentHealth - 1f);
-                    if (amount <= 0f) continue;
-                    unit.TakeDamage(amount, null, doNotFireOnHasDealtDamage: true, ignoreArmor: true);
+                    float amount = Mathf.Min(unit.MaxHealth * HealthShare, unit.CurrentHealth - unit.MaxHealth * Floor);
+                    if (amount <= 0.01f) continue;
+                    // not TakeDamage: that pings "unit under attack" for an attack that is not one
+                    unit.AddToCurrentHealth(-amount);
                     taken += amount;
                 }
-                if (taken > 0f) Bank.Deposit(self.tag, taken * PerHealth);
+                if (taken > 0f) Pay(self.tag, taken * PerHealth, NameOf(self));
             }
         }
 
+        // A share of each enemy's max health, clamped, so it is worth something against big units
+        // without turning a Titan into a fountain. Half of what it drains heals the spire itself.
         class Leech : Tick
         {
-            public int Radius; public float Damage, PerDamage;
-            public override IEntityAction Clone => new Leech { Radius = Radius, Damage = Damage, PerDamage = PerDamage };
+            public int Radius; public float Share, Min, Max, SelfHeal, PerDamage;
+            public override IEntityAction Clone => new Leech { Radius = Radius, Share = Share, Min = Min, Max = Max, SelfHeal = SelfHeal, PerDamage = PerDamage };
             protected override void Second(EntityController self)
             {
                 float dealt = 0f;
                 foreach (var enemy in Within(Enemies(self), self, Radius).ToList())
                 {
                     float before = enemy.CurrentHealth;
-                    enemy.TakeDamage(Damage, self, doNotFireOnHasDealtDamage: false, ignoreArmor: true);
+                    enemy.TakeDamage(Mathf.Clamp(enemy.MaxHealth * Share, Min, Max), self, doNotFireOnHasDealtDamage: false, ignoreArmor: true);
                     dealt += Mathf.Max(0f, before - Mathf.Max(0f, enemy.CurrentHealth));
                 }
-                if (dealt > 0f) Bank.Deposit(self.tag, dealt * PerDamage);
+                if (dealt <= 0f) return;
+                Pay(self.tag, dealt * PerDamage, NameOf(self));
+                if (SelfHeal > 0f && self.CurrentHealth < self.MaxHealth)
+                {
+                    float before = self.CurrentHealth;
+                    self.Heal(dealt * SelfHeal, self, doNotFireOnHasHealed: true);
+                    Note(NameOf(self) + " self-heal hp", self.CurrentHealth - before);
+                }
+            }
+        }
+
+        // Every enemy unit on the map carries this office's bounty from the second it is seen, and its
+        // death pays while the office still stands. The mod name carries the office's instance id: the
+        // game merges mods by NAME (a second add only refreshes the expiry), so a shared name would make
+        // three offices pay like one.
+        class Bounty : Tick
+        {
+            public float Share; public string ModName;
+            public override IEntityAction Clone => new Bounty { Share = Share, ModName = ModName };
+            EntityModScriptableObject _mod;
+
+            protected override void Second(EntityController self)
+            {
+                if (_mod == null) _mod = DeathPay.Build(ModName + "_" + self.GetInstanceID(), self.tag, Share, NameOf(self), self);
+                foreach (var unit in Enemies(self).ToList())
+                {
+                    if (unit == null || !unit.StillExists || unit.DestroyHasBeenStarted || unit.IsBuilding) continue;
+                    if (unit.EntityModExpirationTimeOf.ContainsKey(_mod.name)) continue;
+                    unit.AddEntityMod(_mod, new CardId(CardId.CardType.GlobalLocaId, "rcmrandomizereconomy"));
+                }
             }
         }
 
         // A death pays through a mod on the VICTIM, refreshed every second it stays in range and left
         // to expire a few seconds after it leaves - so a unit that dies just outside the circle still
         // counts, and one that walked through an hour ago does not. That is how the Reclaimer does it.
+        // The mod name is shared by every building of the kind, so two of them do not pay twice.
         class DeathPay : Tick
         {
             public int Radius; public bool Enemy; public float Share, EnemyShare, Seconds; public string ModName;
@@ -363,29 +453,33 @@ namespace RCM_Randomizer
                 }
             }
 
-            EntityModScriptableObject FriendMod(EntityController self) => _friendMod ?? (_friendMod = Build(ModName + "_own", self.tag, Share));
-            EntityModScriptableObject EnemyMod(EntityController self) => _enemyMod ?? (_enemyMod = Build(ModName + "_enemy", self.tag, Enemy ? Share : EnemyShare));
+            EntityModScriptableObject FriendMod(EntityController self) => _friendMod ?? (_friendMod = Build(ModName + "_own", self.tag, Share, NameOf(self) + " (own losses)"));
+            EntityModScriptableObject EnemyMod(EntityController self) => _enemyMod ?? (_enemyMod = Build(ModName + "_enemy", self.tag, Enemy ? Share : EnemyShare, NameOf(self) + (Enemy ? "" : " (enemy deaths)")));
 
-            // the payer is fixed at build time: the OWNER of the building, whatever side the victim is on
-            static EntityModScriptableObject Build(string name, string ownerTag, float share)
+            // the payer is fixed at build time: the OWNER of the building, whatever side the victim is on.
+            // With a source, the death pays only while that building still stands.
+            public static EntityModScriptableObject Build(string name, string ownerTag, float share, string kind, EntityController source = null)
             {
                 var mod = ScriptableObject.CreateInstance<EntityModScriptableObject>();
                 mod.name = name;
                 mod.entityIdentifiers = new List<EntityIdentifier>();
-                mod.events = new List<EntityEvent> { BehaviourMods.Event(EntityController.Event.OnWillBeDestroyed, new PayOwner { OwnerTag = ownerTag, Share = share }) };
+                mod.events = new List<EntityEvent> { BehaviourMods.Event(EntityController.Event.OnWillBeDestroyed,
+                    new PayOwner { OwnerTag = ownerTag, Share = share, Kind = kind, Source = source, HasSource = source != null }) };
                 return mod;
             }
         }
 
         class PayOwner : Tick
         {
-            public string OwnerTag; public float Share;
+            public string OwnerTag, Kind; public float Share;
+            public EntityController Source; public bool HasSource;
             protected override bool RunsWhileDying => true; // it runs ON the death
-            public override IEntityAction Clone => new PayOwner { OwnerTag = OwnerTag, Share = Share };
+            public override IEntityAction Clone => new PayOwner { OwnerTag = OwnerTag, Kind = Kind, Share = Share, Source = Source, HasSource = HasSource };
             protected override void Second(EntityController victim)
             {
+                if (HasSource && (Source == null || !Source.StillExists || Source.DestroyHasBeenStarted)) return;
                 float amount = victim.Cost * Share;
-                if (amount > 0f) Bank.Deposit(OwnerTag, amount);
+                if (amount > 0f) Pay(OwnerTag, amount, Kind);
             }
         }
     }

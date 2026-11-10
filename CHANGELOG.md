@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.3 — 2026-11-10
+
+- **Economy buildings reworked** (player feedback: "anything that requires enemies to be close seems not worth the investment", "with 98 base HP this structure is not going to last long"). Underneath they were Crystal Dust Catchers, with 73 to 130 health, and they cost two to three times as much as the vanilla economy buildings. Each one now has its own health and armor and costs 350 to 700. Each one either works from inside the base or is built to be shot at:
+  - **Crystal Vault** (L12, 350, replaces the Toll Gate): pays 1 crystal per second for every 200 crystals in the bank, up to 5 per second.
+  - **Tithe Altar** (L20, 350): takes 2 percent max health per second from your units within 5 cells and pays 0.12 crystals per point. It stops at half health, so it never kills; next to a healer it keeps paying. It no longer sets off the "unit under attack" alert.
+  - **Bounty Office** (L30, 500, was the Bounty Beacon): 10 percent of the cost of every enemy unit killed anywhere on the map, while the office stands. Several offices each pay.
+  - **Leech Spire** (L38, 600, 650 HP, armor 2): drains 2 percent max health per second (3 to 15) from every enemy within 5 cells, pays 0.3 crystals per point and heals itself by half of what it drains.
+  - **Scrap Furnace** (L46, 650, 500 HP): radius 12 instead of 8, 15 percent of enemy deaths instead of 10.
+  - The Dust Siphon keeps its mechanic and gets 180 HP.
+  - Found while doing this: the game merges mods with the same name, so two Bounty Beacons or Scrap Furnaces never paid twice. Furnaces still don't stack (the card says so). Bounty Offices do.
+  - Once a minute the log lists what each building paid.
+  - Tested in a match: new setting `Diagnostics.EconomySelfTest` starts a standalone match by itself, spawns each building with test units, kills units on purpose and checks every payout against the card text (31 checks, all pass). It writes to profile 3, so only use it with a backup of the Profiles folder.
+
 
 ## 0.10.2 — 2026-10-29
 
